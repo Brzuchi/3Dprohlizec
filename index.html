@@ -3,7 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Prohlížeč - TSZ Autoworks</title>
+    <title>3D STL & OBJ - TSZ Autoworks</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
+        
+        #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 280px; max-width: 350px; z-index: 10; border: 1px solid #444; }
+        
+        .header-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(10, 10, 10, 0.6); border-radius: 10px 10px 0 0; cursor: pointer; user-select: none; }
+        .header-bar h2 { margin: 0; font-size: 1.2em; pointer-events: none; }
+        .header-bar:hover { background: rgba(0, 0, 0, 0.8); }
+
+        #ui-content { padding: 0 20px 20px 20px; max-height: 75vh; overflow-y: auto; display: block; }
+        #ui-content.collapsed { display: none; } 
+
+        .upload-section { margin-top: 15px; margin-bottom: 20px; border-bottom: 1px solid #555; padding-bottom: 20px; }
+        
+        .upload-btn { background: #007bff; color: white; padding: 10px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; transition: background 0.2s;}
+        .upload-btn:hover { background: #0056b3; }
+        input[type="file"] { display: none; }
+        
+        .reset-btn { background: #dc3545; color: white; padding: 8px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; width: 100%; border: none; margin-top: 10px; transition: background 0.2s;}
+        .reset-btn:hover { background: #c82333; }
+
+        #link-container { display: none; margin-top: 15px; padding: 10px; background: rgba(0, 123, 255, 0.1); border-left: 4px solid #007bff; }
+        .generated-link { display: block; margin-top: 5px; color: #00a2ff; word-break: break-all; font-size: 0.85em; text-decoration: none; }
+        .generated-link:hover { text-decoration: underline; }
+
+        .model-item { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 5px; }
+        .model-item-left { display: flex; align-items: center; }
+        .model-item input[type="checkbox"] { margin-right: 12px; cursor: pointer; width: 18px; height: 18px; }
+        .model-item label { cursor: pointer; word-break: break-all; font-weight: 500; font-size: 0.9em;}
+        
+        .delete-btn { background: none; border: none; color: #ff4d4d; font-size: 1.2em; font-weight: bold; cursor: pointer; padding: 0 0 0 10px; margin: 0; outline: none; }
+
+        #viewer { width: 100vw; height: 100vh; display: block; }
+        #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
+    </style>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
     <script type="importmap">
         {
             "imports": {
@@ -12,233 +50,229 @@
             }
         }
     </script>
-    <style>
-        body {
-            margin: 0;
-            background-color: #000000; /* Černé pozadí celé obrazovky */
-            color: white;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Čistší font */
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden; /* Zabránit scrollování celé stránky */
-        }
-
-        #viewer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: -1; /* Umístí 3D scénu do pozadí */
-            overflow: hidden;
-        }
-
-        #ui-container {
-            position: relative;
-            z-index: 10;
-            background-color: #0F0F0F; /* Velmi tmavě šedá pro kontejner (podle obrazek_7.png) */
-            padding: 40px;
-            border-radius: 20px; /* Zaoblené rohy */
-            border: 2px solid #333333; /* Šedý border (podle obrazek_7.png) */
-            width: 400px; /* Kompaktní šířka */
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); /* Jemný stín pro hloubku */
-            text-align: center; /* Centrovat vše uvnitř */
-        }
-
-        h2 {
-            font-size: 2.8em;
-            font-weight: bold;
-            margin: 0 0 25px 0;
-            color: #FFFFFF;
-        }
-
-        .file-input-wrapper {
-            margin-bottom: 25px;
-            color: #CCCCCC;
-            font-size: 1.1em;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* Styl pro standardní browserový input souboru */
-        input[type="file"] {
-            display: block;
-            margin: 0 auto;
-            color: #CCCCCC;
-        }
-
-        .btn {
-            width: 100%;
-            background: #007BFF; /* Ta jasná modrá z image 7 */
-            border: none;
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            font-size: 1.2em;
-            margin-top: 15px;
-            transition: background 0.3s;
-        }
-
-        .btn:hover {
-            background: #0056B3;
-        }
-
-        #status {
-            margin-top: 20px;
-            font-size: 1.1em;
-            color: #AAAAAA;
-        }
-
-        #link-container {
-            margin-top: 25px;
-            display: none;
-            padding: 15px;
-            background: #1A1A1A;
-            border-radius: 8px;
-            border: 1px solid #333333;
-        }
-        strong#share-link {
-            color: #0080FF;
-            word-wrap: break-word; /* Pro dlouhé odkazy */
-        }
-    </style>
 </head>
 <body>
 
-<div id="ui-container">
-    <h2>3D Prohlížeč</h2>
-    <div class="file-input-wrapper">
-        <input type="file" id="file-input" accept=".stl,.obj">
+    <div id="loader-overlay">
+        <div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
+        <p id="loader-text" style="margin-top: 15px;">Pracuji na tom...</p>
     </div>
-    <button id="upload-btn" class="btn">Nahrát a sdílet</button>
-    <div id="status">Připraven k nahrávání...</div>
-    <div id="link-container">
-        Kód pro sdílení:<br>
-        <strong id="share-link"></strong>
+
+    <div id="ui-container">
+        <div id="toggle-menu-btn" class="header-bar">
+            <h2>⚙️ Správce modelů</h2>
+            <span id="toggle-icon" style="transition: transform 0.2s; font-size: 1.2em;">▼</span>
+        </div>
+        
+        <div id="ui-content">
+            <div id="upload-box" class="upload-section">
+                <label class="upload-btn">
+                    Nahrát STL / OBJ / ZIP
+                    <input type="file" id="file-input" multiple accept=".stl, .obj, .zip">
+                </label>
+                
+                <button id="reset-btn" class="reset-btn" style="display: none;">Vytvořit novou sestavu</button>
+
+                <div id="link-container">
+                    <strong>Odkaz pro sdílení!</strong>
+                    <span style="font-size: 0.8em; color: #aaa;"><br>Tento odkaz uvidí kdokoliv.</span>
+                    <a id="share-link" class="generated-link" href="#" target="_blank"></a>
+                </div>
+            </div>
+
+            <div id="model-list">
+                <em id="empty-msg" style="color: #aaa; font-size: 0.9em;">Zatím nebyly nahrány žádné modely.</em>
+            </div>
+        </div>
     </div>
-</div>
 
-<div id="viewer"></div>
+    <div id="viewer"></div>
 
-<script type="module">
-    import * as THREE from 'three';
-    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+    <script type="module">
+        import * as THREE from 'three';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        
+        // Firebase Moduly
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, listAll } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
-    // --- KONFIGURACE FIREBASE ---
-    // Zachováváme tvoje opravené ID bez trojky
-    const firebaseConfig = {
-        apiKey: "AIzaSyDguKneObW3GP-C1b2fuVKovcFj3G4U-_I",
-        authDomain: "dprohlizec.firebaseapp.com",
-        projectId: "dprohlizec",
-        storageBucket: "dprohlizec.firebasestorage.app",
-        messagingSenderId: "722754282413",
-        appId: "1:722754282413:web:36573c5095e261f2378f8b"
-    };
+        // --- KONFIGURACE FIREBASE ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyDguKneObW3GP-C1b2fuVKovcFj3G4U-_I",
+            authDomain: "dprohlizec.firebaseapp.com",
+            projectId: "dprohlizec",
+            storageBucket: "dprohlizec.firebasestorage.app",
+            messagingSenderId: "722754282413",
+            appId: "1:722754282413:web:36573c5095e261f2378f8b"
+        };
 
-    const app = initializeApp(firebaseConfig);
-    const storage = getStorage(app);
+        const app = initializeApp(firebaseConfig);
+        const storage = getStorage(app);
 
-    // --- 3D SCÉNA (Three.js) ---
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a); // Tmavě šedá pro 3D scénu
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('viewer').appendChild(renderer.domElement);
+        // --- UI PRVKY ---
+        const toggleMenuBtn = document.getElementById('toggle-menu-btn');
+        const uiContent = document.getElementById('ui-content');
+        const toggleIcon = document.getElementById('toggle-icon');
+        const fileInput = document.getElementById('file-input');
+        const uploadBox = document.getElementById('upload-box'); 
+        const linkContainer = document.getElementById('link-container');
+        const shareLink = document.getElementById('share-link');
+        const emptyMsg = document.getElementById('empty-msg');
+        const resetBtn = document.getElementById('reset-btn');
+        const loaderOverlay = document.getElementById('loader-overlay');
+        const loaderText = document.getElementById('loader-text');
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(1, 1, 1).normalize();
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0x404040));
-    camera.position.z = 5;
-
-    function animate() {
-        requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
-    }
-    animate();
-
-    // --- LOGIKA NAHRÁVÁNÍ ---
-    const fileInput = document.getElementById('file-input');
-    const uploadBtn = document.getElementById('upload-btn');
-    const statusDiv = document.getElementById('status');
-    const linkContainer = document.getElementById('link-container');
-    const shareLink = document.getElementById('share-link');
-
-    uploadBtn.addEventListener('click', async () => {
-        const file = fileInput.files[0];
-        if (!file) {
-            alert("Vyber nejdříve soubor!");
-            return;
-        }
-
-        console.log("Start nahrávání:", file.name);
-        statusDiv.innerText = "Nahrávám soubor na Firebase...";
-        uploadBtn.disabled = true;
-
-        try {
-            const storageRef = ref(storage, 'models/' + Date.now() + '-' + file.name);
-            const snapshot = await uploadBytes(storageRef, file);
-            console.log("Soubor nahrán!");
-
-            const downloadURL = await getDownloadURL(snapshot.ref);
-            console.log("Odkaz získán:", downloadURL);
-
-            statusDiv.innerText = "Hotovo! Soubor je uložen.";
-            linkContainer.style.display = "block";
-            shareLink.innerText = downloadURL;
-            
-            // Náhled modelu directly in the browser
-            loadModel(downloadURL);
-
-        } catch (error) {
-            console.error("Chyba při nahrávání:", error);
-            statusDiv.innerText = "Chyba: " + error.message;
-        } finally {
-            uploadBtn.disabled = false;
-        }
-    });
-
-    function loadModel(url) {
-        // Nejprve vyčistíme starý model ze scény
-        scene.traverse((object) => {
-            if (object.isMesh) {
-                scene.remove(object);
-            }
+        // --- ROLETKA ---
+        toggleMenuBtn.addEventListener('click', () => {
+            uiContent.classList.toggle('collapsed');
+            toggleIcon.style.transform = uiContent.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
         });
 
-        const loader = new STLLoader();
-        loader.load(url, (geometry) => {
-            const material = new THREE.MeshPhongMaterial({ color: 0x007bff, specular: 0x111111, shininess: 200 });
-            const mesh = new THREE.Mesh(geometry, material);
-            
-            // Vycentrování modelu
-            geometry.computeBoundingBox();
-            const center = new THREE.Vector3();
-            geometry.boundingBox.getCenter(center);
-            mesh.position.sub(center);
-            
-            scene.add(mesh);
-            statusDiv.innerText = "Model zobrazen v náhledu.";
-        });
-    }
-
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
+        // --- THREE.JS SCÉNA ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a);
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
+        camera.position.set(100, 100, 100);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-</script>
+        document.getElementById('viewer').appendChild(renderer.domElement);
+        
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(1, 1, 1).normalize();
+        scene.add(dirLight);
 
+        const modelsGroup = new THREE.Group();
+        modelsGroup.rotation.x = -Math.PI / 2; // CAD Z-up na Web Y-up
+        scene.add(modelsGroup);
+
+        // --- POMOCNÉ FUNKCE ---
+        const showLoader = (text) => { loaderText.innerText = text; loaderOverlay.style.display = 'flex'; };
+        const hideLoader = () => { loaderOverlay.style.display = 'none'; };
+
+        function focusCamera() {
+            if (modelsGroup.children.length === 0) return;
+            const box = new THREE.Box3().setFromObject(modelsGroup);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            camera.position.set(center.x, center.y + maxDim / 2, center.z + (maxDim * 1.5));
+            controls.target.copy(center);
+            controls.update();
+        }
+
+        async function loadAndRender(url, name, color) {
+            const isObj = name.toLowerCase().endsWith('.obj');
+            const loader = isObj ? new OBJLoader() : new STLLoader();
+            const material = new THREE.MeshStandardMaterial({ color: color || 0x007bff, roughness: 0.4, metalness: 0.1, side: THREE.DoubleSide });
+
+            return new Promise((resolve) => {
+                loader.load(url, (result) => {
+                    let mesh;
+                    if (isObj) {
+                        result.traverse(child => { if (child.isMesh) child.material = material; });
+                        mesh = result;
+                    } else {
+                        mesh = new THREE.Mesh(result, material);
+                    }
+                    modelsGroup.add(mesh);
+                    createUIItem(name, mesh, color);
+                    resolve();
+                });
+            });
+        }
+
+        function createUIItem(name, mesh, color) {
+            if (emptyMsg) emptyMsg.style.display = 'none';
+            const div = document.createElement('div');
+            div.className = 'model-item';
+            const hexColor = '#' + mesh.children?.[0]?.material?.color?.getHexString() || mesh.material?.color?.getHexString() || "007bff";
+            
+            div.innerHTML = `
+                <div class="model-item-left">
+                    <input type="checkbox" checked id="chk-${name}">
+                    <label for="chk-${name}" style="color: ${hexColor}">${name}</label>
+                </div>
+            `;
+            div.querySelector('input').addEventListener('change', (e) => mesh.visible = e.target.checked);
+            document.getElementById('model-list').appendChild(div);
+        }
+
+        // --- ZPRACOVÁNÍ URL (Návštěvník) ---
+        const urlId = new URLSearchParams(window.location.search).get('id');
+        if (urlId) {
+            showLoader("Načítám cloudovou sestavu...");
+            const folderRef = ref(storage, `shared/${urlId}`);
+            listAll(folderRef).then(async (res) => {
+                for (const item of res.items) {
+                    const url = await getDownloadURL(item);
+                    await loadAndRender(url, item.name);
+                }
+                focusCamera();
+                uploadBox.style.display = 'none';
+                resetBtn.style.display = 'block';
+                hideLoader();
+            }).catch(() => {
+                emptyMsg.innerText = "Sestava nebyla nalezena.";
+                hideLoader();
+            });
+        }
+
+        // --- NAHRÁVÁNÍ (Vojtěch) ---
+        fileInput.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files.length) return;
+
+            const sessionId = Math.random().toString(36).substring(2, 10);
+            showLoader("Nahrávám do cloudu...");
+
+            for (const file of files) {
+                if (file.name.toLowerCase().endsWith('.zip')) {
+                    const zip = await JSZip.loadAsync(file);
+                    for (const [path, entry] of Object.entries(zip.files)) {
+                        if (!entry.dir && (path.endsWith('.stl') || path.endsWith('.obj'))) {
+                            const blob = await entry.async("blob");
+                            const fileRef = ref(storage, `shared/${sessionId}/${path.split('/').pop()}`);
+                            await uploadBytes(fileRef, blob);
+                        }
+                    }
+                } else {
+                    const fileRef = ref(storage, `shared/${sessionId}/${file.name}`);
+                    await uploadBytes(fileRef, file);
+                }
+            }
+
+            // Vygenerování odkazu
+            const shareUrl = `${window.location.origin}${window.location.pathname}?id=${sessionId}`;
+            shareLink.href = shareUrl;
+            shareLink.innerText = shareUrl;
+            linkContainer.style.display = 'block';
+            resetBtn.style.display = 'block';
+            
+            // Načtení nahraného (simulace návštěvníka)
+            window.location.href = shareUrl;
+        });
+
+        resetBtn.addEventListener('click', () => window.location.href = window.location.pathname);
+
+        // --- ANIMACE ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+    <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
 </body>
 </html>
