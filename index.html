@@ -13,21 +13,108 @@
         }
     </script>
     <style>
-        body { margin: 0; background-color: #1a1a1a; color: white; font-family: sans-serif; overflow: hidden; }
-        #ui-container { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0, 0, 0, 0.7); padding: 20px; border-radius: 10px; border: 1px solid #444; }
-        #viewer { width: 100vw; height: 100vh; }
-        .btn { background: #007bff; border: none; color: white; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 10px; }
-        .btn:hover { background: #0056b3; }
-        #status { margin-top: 10px; font-size: 0.9em; color: #aaa; }
-        #link-container { margin-top: 15px; display: none; padding: 10px; background: #2d5a27; border-radius: 5px; }
-        input[type="file"] { display: block; margin-bottom: 10px; }
+        body {
+            margin: 0;
+            background-color: #000000; /* Černé pozadí celé obrazovky */
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Čistší font */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden; /* Zabránit scrollování celé stránky */
+        }
+
+        #viewer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1; /* Umístí 3D scénu do pozadí */
+            overflow: hidden;
+        }
+
+        #ui-container {
+            position: relative;
+            z-index: 10;
+            background-color: #0F0F0F; /* Velmi tmavě šedá pro kontejner (podle obrazek_7.png) */
+            padding: 40px;
+            border-radius: 20px; /* Zaoblené rohy */
+            border: 2px solid #333333; /* Šedý border (podle obrazek_7.png) */
+            width: 400px; /* Kompaktní šířka */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7); /* Jemný stín pro hloubku */
+            text-align: center; /* Centrovat vše uvnitř */
+        }
+
+        h2 {
+            font-size: 2.8em;
+            font-weight: bold;
+            margin: 0 0 25px 0;
+            color: #FFFFFF;
+        }
+
+        .file-input-wrapper {
+            margin-bottom: 25px;
+            color: #CCCCCC;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Styl pro standardní browserový input souboru */
+        input[type="file"] {
+            display: block;
+            margin: 0 auto;
+            color: #CCCCCC;
+        }
+
+        .btn {
+            width: 100%;
+            background: #007BFF; /* Ta jasná modrá z image 7 */
+            border: none;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-top: 15px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #0056B3;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-size: 1.1em;
+            color: #AAAAAA;
+        }
+
+        #link-container {
+            margin-top: 25px;
+            display: none;
+            padding: 15px;
+            background: #1A1A1A;
+            border-radius: 8px;
+            border: 1px solid #333333;
+        }
+        strong#share-link {
+            color: #0080FF;
+            word-wrap: break-word; /* Pro dlouhé odkazy */
+        }
     </style>
 </head>
 <body>
 
 <div id="ui-container">
     <h2>3D Prohlížeč</h2>
-    <input type="file" id="file-input" accept=".stl,.obj">
+    <div class="file-input-wrapper">
+        <input type="file" id="file-input" accept=".stl,.obj">
+    </div>
     <button id="upload-btn" class="btn">Nahrát a sdílet</button>
     <div id="status">Připraven k nahrávání...</div>
     <div id="link-container">
@@ -46,7 +133,7 @@
     import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
     // --- KONFIGURACE FIREBASE ---
-    // Používáme tvoje ID "dprohlizec" bez trojky
+    // Zachováváme tvoje opravené ID bez trojky
     const firebaseConfig = {
         apiKey: "AIzaSyDguKneObW3GP-C1b2fuVKovcFj3G4U-_I",
         authDomain: "dprohlizec.firebaseapp.com",
@@ -61,7 +148,7 @@
 
     // --- 3D SCÉNA (Three.js) ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a);
+    scene.background = new THREE.Color(0x1a1a1a); // Tmavě šedá pro 3D scénu
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -100,23 +187,18 @@
         uploadBtn.disabled = true;
 
         try {
-            // Vytvoření cesty v úložišti
             const storageRef = ref(storage, 'models/' + Date.now() + '-' + file.name);
-            
-            // Nahrání souboru
             const snapshot = await uploadBytes(storageRef, file);
             console.log("Soubor nahrán!");
 
-            // Získání odkazu
             const downloadURL = await getDownloadURL(snapshot.ref);
             console.log("Odkaz získán:", downloadURL);
 
-            // Zobrazení výsledku
             statusDiv.innerText = "Hotovo! Soubor je uložen.";
             linkContainer.style.display = "block";
             shareLink.innerText = downloadURL;
             
-            // Náhled modelu přímo v prohlížeči
+            // Náhled modelu directly in the browser
             loadModel(downloadURL);
 
         } catch (error) {
@@ -128,6 +210,13 @@
     });
 
     function loadModel(url) {
+        // Nejprve vyčistíme starý model ze scény
+        scene.traverse((object) => {
+            if (object.isMesh) {
+                scene.remove(object);
+            }
+        });
+
         const loader = new STLLoader();
         loader.load(url, (geometry) => {
             const material = new THREE.MeshPhongMaterial({ color: 0x007bff, specular: 0x111111, shininess: 200 });
