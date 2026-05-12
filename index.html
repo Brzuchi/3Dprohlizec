@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D STL & OBJ - TSZ Autoworks</title>
+    <title>Prohlížeč modelů💾</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
         #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 280px; max-width: 350px; z-index: 10; border: 1px solid #444; }
@@ -48,6 +48,7 @@
             <span id="toggle-icon" style="transition: transform 0.2s; font-size: 1.2em;">▼</span>
         </div>
         <div id="ui-content">
+            <!-- Tato sekce se skryje pro lidi s linkem -->
             <div id="upload-box" class="upload-section">
                 <label class="upload-btn">Nahrát STL / OBJ / ZIP
                     <input type="file" id="file-input" multiple accept=".stl, .obj, .zip">
@@ -58,6 +59,7 @@
                 </div>
                 <button id="reset-btn" class="reset-btn" style="display: none;">Vytvořit novou sestavu</button>
             </div>
+            <!-- Seznam modelů zůstane viditelný pro všechny -->
             <div id="model-list"><em id="empty-msg" style="color: #aaa; font-size: 0.9em;">Zatím nebyly nahrány žádné modely.</em></div>
         </div>
     </div>
@@ -74,11 +76,24 @@
         const SUPABASE_KEY = 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3';
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        // --- DEFINICE PRVKŮ (Opraveno) ---
+        const toggleMenuBtn = document.getElementById('toggle-menu-btn');
+        const uiContent = document.getElementById('ui-content');
+        const toggleIcon = document.getElementById('toggle-icon');
+        const uploadBox = document.getElementById('upload-box');
         const fileInput = document.getElementById('file-input');
         const linkContainer = document.getElementById('link-container');
         const shareLink = document.getElementById('share-link');
         const modelList = document.getElementById('model-list');
         const loaderOverlay = document.getElementById('loader-overlay');
+        const resetBtn = document.getElementById('reset-btn');
+
+        // --- FUNKČNÍ ROLETKA ---
+        toggleMenuBtn.onclick = () => {
+            uiContent.classList.toggle('collapsed');
+            toggleIcon.style.transform = uiContent.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
+        };
+
         const modelsGroup = new THREE.Group();
         modelsGroup.rotation.x = -Math.PI / 2;
 
@@ -99,18 +114,38 @@
         async function fetchSharedModels(targetId) {
             const id = targetId || new URLSearchParams(window.location.search).get('id');
             if (!id) return;
+
+            // Skrytí nahrávání pro koncového uživatele (pokud přišel přes link)
+            if (!targetId) {
+                uploadBox.style.display = 'none';
+                resetBtn.style.display = 'block';
+            }
+
             loaderOverlay.style.display = 'flex';
             const { data } = await supabase.storage.from('models').list(`shared/${id}`);
-            const colors = [0x007bff, 0xdc3545, 0x28a745, 0xffc107, 0x17a2b8, 0x6f42c1, 0xfd7e14, 0xe83e8c, 0x20c997, 0x6610f2, 0xadb5bd, 0x94d82d, 0xff922b, 0x51cf66, 0x339af0, 0xcc5de8, 0xf06595, 0xffd43b, 0x845ef7, 0x00d4ff];
+            
+            // Rozšířená paleta barev
+            const colors = [
+                0x007bff, 0xdc3545, 0x28a745, 0xffc107, 0x17a2b8, 0x6f42c1, 
+                0xfd7e14, 0xe83e8c, 0x20c997, 0x6610f2, 0xadb5bd, 0x94d82d, 
+                0xff922b, 0x51cf66, 0x339af0, 0xcc5de8, 0xf06595, 0xffd43b, 
+                0x845ef7, 0x00d4ff, 0x5c940d, 0xd9480f, 0x0c85d0, 0xa61e4d
+            ];
+            
             let colorIdx = 0;
             for (const file of (data || [])) {
                 if(file.name.startsWith('.')) continue;
                 const { data: pUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${file.name}`);
                 await loadAndRender(pUrl.publicUrl, file.name, colors[colorIdx++ % colors.length]);
             }
+            
             const box = new THREE.Box3().setFromObject(modelsGroup);
             const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            camera.position.set(center.x + maxDim, center.y + maxDim, center.z + maxDim);
             controls.target.copy(center);
+            controls.update();
             loaderOverlay.style.display = 'none';
         }
 
@@ -119,15 +154,25 @@
             return new Promise(res => {
                 loader.load(url, (result) => {
                     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide });
-                    let mesh = result.isMesh ? result : result.children[0];
-                    if(!result.isMesh) result.traverse(c => { if(c.isMesh) c.material = material; });
-                    else mesh.material = material;
-                    modelsGroup.add(result.isMesh ? mesh : result);
+                    let mesh;
+                    if(result.isMesh) {
+                        mesh = result;
+                        mesh.material = material;
+                    } else {
+                        result.traverse(c => { if(c.isMesh) c.material = material; });
+                        mesh = result;
+                    }
+                    modelsGroup.add(mesh);
+                    
+                    const emptyMsg = document.getElementById('empty-msg');
+                    if (emptyMsg) emptyMsg.style.display = 'none';
+                    
                     const div = document.createElement('div');
                     div.className = 'model-item';
-                    div.style.borderLeftColor = '#' + new THREE.Color(color).getHexString();
-                    div.innerHTML = `<div class="model-item-left"><input type="checkbox" checked id="c-${name}"><label for="c-${name}" style="color:#${new THREE.Color(color).getHexString()}">${name}</label></div>`;
-                    div.querySelector('input').onchange = (e) => { (result.isMesh ? mesh : result).visible = e.target.checked; };
+                    const colorStr = '#' + new THREE.Color(color).getHexString();
+                    div.style.borderLeftColor = colorStr;
+                    div.innerHTML = `<div class="model-item-left"><input type="checkbox" checked id="c-${name}"><label for="c-${name}" style="color:${colorStr}">${name}</label></div>`;
+                    div.querySelector('input').onchange = (e) => { mesh.visible = e.target.checked; };
                     modelList.appendChild(div);
                     res();
                 });
@@ -153,6 +198,8 @@
             shareLink.href = url; shareLink.innerText = url; linkContainer.style.display = 'block';
             await fetchSharedModels(sessionId);
         };
+
+        resetBtn.onclick = () => window.location.href = window.location.pathname;
 
         if(window.location.search.includes('id=')) fetchSharedModels();
         function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
