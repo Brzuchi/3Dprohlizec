@@ -33,15 +33,13 @@
         .model-item-left { display: flex; align-items: center; }
         .model-item input[type="checkbox"] { margin-right: 12px; cursor: pointer; width: 18px; height: 18px; }
         .model-item label { cursor: pointer; word-break: break-all; font-weight: 500; font-size: 0.9em;}
-        
-        .delete-btn { background: none; border: none; color: #ff4d4d; font-size: 1.2em; font-weight: bold; cursor: pointer; padding: 0 0 0 10px; margin: 0; outline: none; }
 
         #viewer { width: 100vw; height: 100vh; display: block; }
         #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
     <script type="importmap">
         {
             "imports": {
@@ -93,23 +91,12 @@
         import { STLLoader } from 'three/addons/loaders/STLLoader.js';
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        
-        // Firebase Moduly
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL, listAll } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-        // --- KONFIGURACE FIREBASE ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyDguKneObW3GP-C1b2fuVKovcFj3G4U-_I",
-            authDomain: "dprohlizec.firebaseapp.com",
-            projectId: "dprohlizec",
-            storageBucket: "dprohlizec.firebasestorage.app",
-            messagingSenderId: "722754282413",
-            appId: "1:722754282413:web:36573c5095e261f2378f8b"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const storage = getStorage(app);
+        // --- KONFIGURACE SUPABASE ---
+        const SUPABASE_URL = 'https://aukjrwkjvuhmbfqqgoav.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3';
+        const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // --- UI PRVKY ---
         const toggleMenuBtn = document.getElementById('toggle-menu-btn');
@@ -150,7 +137,6 @@
         modelsGroup.rotation.x = -Math.PI / 2; // CAD Z-up na Web Y-up
         scene.add(modelsGroup);
 
-        // --- POMOCNÉ FUNKCE ---
         const showLoader = (text) => { loaderText.innerText = text; loaderOverlay.style.display = 'flex'; };
         const hideLoader = () => { loaderOverlay.style.display = 'none'; };
 
@@ -182,6 +168,9 @@
                     modelsGroup.add(mesh);
                     createUIItem(name, mesh, color);
                     resolve();
+                }, undefined, (err) => {
+                    console.error("Chyba při renderu modelu:", err);
+                    resolve();
                 });
             });
         }
@@ -190,7 +179,7 @@
             if (emptyMsg) emptyMsg.style.display = 'none';
             const div = document.createElement('div');
             div.className = 'model-item';
-            const hexColor = '#' + mesh.children?.[0]?.material?.color?.getHexString() || mesh.material?.color?.getHexString() || "007bff";
+            const hexColor = '#' + (mesh.children?.[0]?.material?.color?.getHexString() || mesh.material?.color?.getHexString() || "007bff");
             
             div.innerHTML = `
                 <div class="model-item-left">
@@ -205,21 +194,28 @@
         // --- ZPRACOVÁNÍ URL (Návštěvník) ---
         const urlId = new URLSearchParams(window.location.search).get('id');
         if (urlId) {
-            showLoader("Načítám cloudovou sestavu...");
-            const folderRef = ref(storage, `shared/${urlId}`);
-            listAll(folderRef).then(async (res) => {
-                for (const item of res.items) {
-                    const url = await getDownloadURL(item);
-                    await loadAndRender(url, item.name);
+            showLoader("Načítám modely ze Supabase...");
+            
+            async function fetchSharedModels() {
+                const { data, error } = await supabase.storage.from('models').list(`shared/${urlId}`);
+                
+                if (error || !data || data.length === 0) {
+                    emptyMsg.innerText = "Sestava nebyla nalezena nebo je prázdná.";
+                    hideLoader();
+                    return;
+                }
+
+                for (const file of data) {
+                    if(file.name === '.emptyFolderPlaceholder') continue;
+                    const { data: publicUrlData } = supabase.storage.from('models').getPublicUrl(`shared/${urlId}/${file.name}`);
+                    await loadAndRender(publicUrlData.publicUrl, file.name);
                 }
                 focusCamera();
                 uploadBox.style.display = 'none';
                 resetBtn.style.display = 'block';
                 hideLoader();
-            }).catch(() => {
-                emptyMsg.innerText = "Sestava nebyla nalezena.";
-                hideLoader();
-            });
+            }
+            fetchSharedModels();
         }
 
         // --- NAHRÁVÁNÍ (Vojtěch) ---
@@ -228,38 +224,35 @@
             if (!files.length) return;
 
             const sessionId = Math.random().toString(36).substring(2, 10);
-            showLoader("Nahrávám do cloudu...");
+            showLoader("Nahrávám do Supabase...");
 
-            for (const file of files) {
-                if (file.name.toLowerCase().endsWith('.zip')) {
-                    const zip = await JSZip.loadAsync(file);
-                    for (const [path, entry] of Object.entries(zip.files)) {
-                        if (!entry.dir && (path.endsWith('.stl') || path.endsWith('.obj'))) {
-                            const blob = await entry.async("blob");
-                            const fileRef = ref(storage, `shared/${sessionId}/${path.split('/').pop()}`);
-                            await uploadBytes(fileRef, blob);
+            try {
+                for (const file of files) {
+                    if (file.name.toLowerCase().endsWith('.zip')) {
+                        const zip = await JSZip.loadAsync(file);
+                        for (const [path, entry] of Object.entries(zip.files)) {
+                            if (!entry.dir && (path.endsWith('.stl') || path.endsWith('.obj'))) {
+                                const blob = await entry.async("blob");
+                                const fileName = path.split('/').pop();
+                                const { error } = await supabase.storage.from('models').upload(`shared/${sessionId}/${fileName}`, blob);
+                                if(error) throw error;
+                            }
                         }
+                    } else {
+                        const { error } = await supabase.storage.from('models').upload(`shared/${sessionId}/${file.name}`, file);
+                        if(error) throw error;
                     }
-                } else {
-                    const fileRef = ref(storage, `shared/${sessionId}/${file.name}`);
-                    await uploadBytes(fileRef, file);
                 }
+                const shareUrl = `${window.location.origin}${window.location.pathname}?id=${sessionId}`;
+                window.location.href = shareUrl;
+            } catch (error) {
+                console.error("Chyba:", error);
+                alert("Nahrávání selhalo (možná chybí bucket 'models'): " + error.message);
+                hideLoader();
             }
-
-            // Vygenerování odkazu
-            const shareUrl = `${window.location.origin}${window.location.pathname}?id=${sessionId}`;
-            shareLink.href = shareUrl;
-            shareLink.innerText = shareUrl;
-            linkContainer.style.display = 'block';
-            resetBtn.style.display = 'block';
-            
-            // Načtení nahraného (simulace návštěvníka)
-            window.location.href = shareUrl;
         });
 
         resetBtn.addEventListener('click', () => window.location.href = window.location.pathname);
-
-        // --- ANIMACE ---
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -273,6 +266,5 @@
         }
         animate();
     </script>
-    <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
 </body>
 </html>
