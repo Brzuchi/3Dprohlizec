@@ -33,6 +33,9 @@
         .opacity-slider { width: 100%; margin-top: 10px; height: 4px; cursor: pointer; accent-color: #007bff; }
         .slider-label { font-size: 0.7em; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
+        /* Nápověda pro anotace */
+        #hint-box { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0, 123, 255, 0.9); padding: 12px 24px; border-radius: 30px; font-weight: 600; font-size: 0.9em; pointer-events: none; z-index: 10; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none; }
+
         #viewer { width: 100vw; height: 100vh; display: block; }
         #viewcube-container { position: absolute; top: 20px; right: 20px; width: 130px; height: 130px; z-index: 20; }
         #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
@@ -46,6 +49,8 @@
         <div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
         <p id="loader-text" style="margin-top: 15px;">Pracuji na tom...</p>
     </div>
+
+    <div id="hint-box">💡 Dvojklikem na model přidáte bod. Dvojklikem na bod ho smažete.</div>
 
     <div id="ui-container">
         <div id="toggle-menu-btn" class="header-bar">
@@ -87,6 +92,10 @@
         const cubeSize = 130;
         let currentSessionId = new URLSearchParams(window.location.search).get('id');
 
+        // Globální proměnné pro anotace
+        let annotations = [];
+        let markerRadius = 5;
+
         const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1a1a);
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000); camera.position.set(200, 200, 200);
         const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
@@ -96,6 +105,64 @@
         const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
 
+        // --- INTERAKTIVNÍ BODY (ANOTACE) ---
+        const mainRaycaster = new THREE.Raycaster();
+        const mainMouse = new THREE.Vector2();
+
+        document.getElementById('viewer').addEventListener('dblclick', async (e) => {
+            if(!currentSessionId || modelsGroup.children.length === 0) return;
+
+            mainMouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mainMouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            mainRaycaster.setFromCamera(mainMouse, camera);
+
+            // Nejdřív zkontrolujeme, jestli jsme neklikli na existující bod (pro smazání)
+            const hitsAnnot = mainRaycaster.intersectObjects(annotations);
+            if (hitsAnnot.length > 0) {
+                const marker = hitsAnnot[0].object;
+                scene.remove(marker);
+                annotations = annotations.filter(a => a !== marker);
+                await saveAnnotations();
+                return;
+            }
+
+            // Pokud jsme klikli na model, přidáme nový bod
+            const hitsModel = mainRaycaster.intersectObject(modelsGroup, true);
+            if (hitsModel.length > 0 && hitsModel[0].object.visible) { // Bod se přidá jen na viditelný díl
+                createMarker(hitsModel[0].point);
+                await saveAnnotations();
+            }
+        });
+
+        function createMarker(position) {
+            const geo = new THREE.SphereGeometry(markerRadius, 32, 32);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Zářivě červená
+            const sphere = new THREE.Mesh(geo, mat);
+            sphere.position.copy(position);
+            scene.add(sphere);
+            annotations.push(sphere);
+        }
+
+        async function saveAnnotations() {
+            const points = annotations.map(a => ({ x: a.position.x, y: a.position.y, z: a.position.z }));
+            const blob = new Blob([JSON.stringify(points)], { type: 'application/json' });
+            // Finta: Nejdřív smažeme starý soubor a pak nahrajeme nový, aby to prošlo přes RLS bez UPDATE práva
+            await supabase.storage.from('models').remove([`shared/${currentSessionId}/annotations.json`]);
+            if(points.length > 0) {
+                await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, blob);
+            }
+        }
+
+        async function loadAnnotations(id) {
+            const { data, error } = await supabase.storage.from('models').download(`shared/${id}/annotations.json`);
+            if (!error && data) {
+                const text = await data.text();
+                const points = JSON.parse(text);
+                points.forEach(p => createMarker(new THREE.Vector3(p.x, p.y, p.z)));
+            }
+        }
+
+        // --- ViewCube ---
         const cubeCont = document.getElementById('viewcube-container'); cubeCont.innerHTML = ''; 
         const cubeScene = new THREE.Scene();
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
@@ -136,6 +203,7 @@
             camera.position.copy(p[idx]); controls.target.copy(c); controls.update();
         }
 
+        // --- ZBYTEK UI A UPLOAD ---
         document.getElementById('copy-link-btn').onclick = () => {
             navigator.clipboard.writeText(document.getElementById('share-link').innerText).then(() => {
                 const b = document.getElementById('copy-link-btn'); b.innerText = "Hotovo!"; b.style.background = "#28a745";
@@ -152,17 +220,32 @@
             const id = targetId || currentSessionId; if (!id) return;
             if (!targetId) document.getElementById('upload-box').style.display = 'none';
             else { document.getElementById('reset-btn').style.display = 'block'; document.getElementById('delete-all-btn').style.display = 'block'; }
+            
             document.getElementById('loader-overlay').style.display = 'flex';
             const { data } = await supabase.storage.from('models').list(`shared/${id}`);
             const cols = [0x007bff, 0xdc3545, 0x28a745, 0xffc107, 0x17a2b8, 0x6f42c1, 0xfd7e14, 0xe83e8c, 0x20c997, 0x6610f2, 0xadb5bd, 0x94d82d, 0xff922b, 0x51cf66, 0x339af0, 0xcc5de8];
-            let ci = 0; document.getElementById('model-list').innerHTML = ""; modelsGroup.clear();
+            let ci = 0; document.getElementById('model-list').innerHTML = ""; modelsGroup.clear(); annotations.forEach(a => scene.remove(a)); annotations = [];
+            
             for (const f of (data || [])) {
-                if(f.name.startsWith('.')) continue;
+                if(f.name.startsWith('.') || f.name.endsWith('.json')) continue; // Ignorujeme body při načítání samotných modelů
                 const { data: pu } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${f.name}`);
                 await renderModel(pu.publicUrl, f.name, cols[ci++ % cols.length], !!targetId);
             }
-            const b = new THREE.Box3().setFromObject(modelsGroup); controls.target.copy(b.getCenter(new THREE.Vector3())); controls.update();
+            
+            const b = new THREE.Box3().setFromObject(modelsGroup); 
+            const size = b.getSize(new THREE.Vector3());
+            
+            // Automatický výpočet velikosti kuličky podle reálné velikosti dílu (1.5% nejdelší strany)
+            markerRadius = Math.max(size.x, size.y, size.z) * 0.015; 
+            if(markerRadius < 1) markerRadius = 1;
+
+            controls.target.copy(b.getCenter(new THREE.Vector3())); controls.update();
+            
+            // Načtení uložených bodů
+            await loadAnnotations(id);
+
             document.getElementById('loader-overlay').style.display = 'none';
+            document.getElementById('hint-box').style.display = 'block'; // Zobrazení nápovědy
         }
 
         async function renderModel(url, name, col, isU) {
@@ -215,7 +298,7 @@
                     for (const [p, en] of Object.entries(z.files)) {
                         if (!en.dir && (p.endsWith('.stl') || p.endsWith('.obj'))) await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob"));
                     }
-                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${file.name}`, file);
+                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f);
             }
             const u = `${window.location.origin}${window.location.pathname}?id=${currentSessionId}`;
             document.getElementById('share-link').href = u; document.getElementById('share-link').innerText = u; document.getElementById('link-container').style.display = 'block';
