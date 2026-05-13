@@ -23,16 +23,15 @@
         .generated-link { flex: 1; color: #00a2ff; word-break: break-all; font-size: 0.85em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .copy-btn { background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 3px; cursor: pointer; font-size: 0.8em; font-weight: bold; transition: background 0.2s; white-space: nowrap; }
         
-        /* Layout položky v seznamu */
-        .model-item { margin-top: 12px; display: flex; flex-direction: column; background: rgba(255,255,255,0.05); padding: 10px 12px; border-radius: 5px; border-left: 4px solid transparent; }
+        .model-item { margin-top: 12px; display: flex; flex-direction: column; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 5px; border-left: 4px solid transparent; }
         .model-item-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
         .model-item-left { display: flex; align-items: center; overflow: hidden; }
         .model-item input[type="checkbox"] { margin-right: 12px; cursor: pointer; width: 18px; height: 18px; flex-shrink: 0; }
         .model-item label { cursor: pointer; font-weight: 600; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
         .del-file-btn { color: #dc3545; cursor: pointer; font-weight: bold; font-size: 1.2em; margin-left: 10px; }
         
-        /* Styl pro slider průhlednosti */
-        .opacity-slider { width: 100%; margin-top: 8px; height: 4px; cursor: pointer; accent-color: #007bff; }
+        .opacity-slider { width: 100%; margin-top: 10px; height: 4px; cursor: pointer; accent-color: #007bff; }
+        .slider-label { font-size: 0.7em; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
         #viewer { width: 100vw; height: 100vh; display: block; }
         #viewcube-container { position: absolute; top: 20px; right: 20px; width: 130px; height: 130px; z-index: 20; }
@@ -97,8 +96,7 @@
         const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
 
-        const cubeCont = document.getElementById('viewcube-container');
-        cubeCont.innerHTML = ''; 
+        const cubeCont = document.getElementById('viewcube-container'); cubeCont.innerHTML = ''; 
         const cubeScene = new THREE.Scene();
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
         const cubeRen = new THREE.WebGLRenderer({ antialias: true, alpha: true }); cubeRen.setSize(cubeSize, cubeSize);
@@ -171,14 +169,7 @@
             const l = name.toLowerCase().endsWith('.obj') ? new OBJLoader() : new STLLoader();
             return new Promise(res => {
                 l.load(url, (r) => {
-                    const m = new THREE.MeshStandardMaterial({ 
-                        color: col, 
-                        roughness: 0.5, 
-                        metalness: 0.2, 
-                        side: THREE.DoubleSide,
-                        transparent: true, // Povolení průhlednosti
-                        opacity: 1 
-                    });
+                    const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide, transparent: true, opacity: 1 });
                     let mesh = r.isMesh ? r : r.children[0];
                     if(!r.isMesh) r.traverse(c => { if(c.isMesh) c.material = m; }); else mesh.material = m;
                     modelsGroup.add(r.isMesh ? mesh : r);
@@ -187,27 +178,28 @@
                     const d = document.createElement('div'); d.className = 'model-item'; const cs = '#' + new THREE.Color(col).getHexString();
                     d.style.borderLeftColor = cs;
                     
+                    const displayName = name.replace(/\.(stl|obj)$/i, '');
+                    
                     d.innerHTML = `
                         <div class="model-item-top">
                             <div class="model-item-left">
                                 <input type="checkbox" checked>
-                                <label style="color:${cs}">${name}</label>
+                                <label style="color:${cs}" title="${displayName}">${displayName}</label>
                             </div>
                             ${isU ? '<span class="del-file-btn">×</span>' : ""}
                         </div>
-                        <input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1" title="Průhlednost">
+                        <input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1">
+                        <div class="slider-label">Viditelnost</div>
                     `;
                     
-                    // Eventy pro viditelnost a průhlednost
                     d.querySelector('input[type="checkbox"]').onchange = (e) => { (r.isMesh ? mesh : r).visible = e.target.checked; };
                     d.querySelector('.opacity-slider').oninput = (e) => {
                         const val = parseFloat(e.target.value);
-                        if(r.isMesh) r.material.opacity = val;
-                        else r.traverse(c => { if(c.isMesh) c.material.opacity = val; });
+                        if(r.isMesh) r.material.opacity = val; else r.traverse(c => { if(c.isMesh) c.material.opacity = val; });
                     };
 
                     if(isU) d.querySelector('.del-file-btn').onclick = async () => {
-                        if(confirm(`Smazat ${name}?`)) { await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); modelsGroup.remove(r.isMesh ? mesh : r); d.remove(); }
+                        if(confirm(`Smazat ${displayName}?`)) { await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); modelsGroup.remove(r.isMesh ? mesh : r); d.remove(); }
                     };
                     document.getElementById('model-list').appendChild(d); res();
                 });
@@ -223,7 +215,7 @@
                     for (const [p, en] of Object.entries(z.files)) {
                         if (!en.dir && (p.endsWith('.stl') || p.endsWith('.obj'))) await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob"));
                     }
-                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f);
+                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${file.name}`, file);
             }
             const u = `${window.location.origin}${window.location.pathname}?id=${currentSessionId}`;
             document.getElementById('share-link').href = u; document.getElementById('share-link').innerText = u; document.getElementById('link-container').style.display = 'block';
