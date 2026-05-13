@@ -25,8 +25,13 @@
         .delete-all-btn { background: #dc3545; color: white; padding: 8px; border-radius: 5px; cursor: pointer; text-align: center; flex: 1; font-weight: 600; border: none; }
 
         #link-container { display: none; margin-top: 15px; padding: 12px; background: rgba(0, 123, 255, 0.1); border: 1px solid #007bff; border-radius: 5px; }
-        .generated-link { display: block; margin-top: 8px; color: #00a2ff; word-break: break-all; font-size: 0.85em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; }
         
+        /* Flexbox pro odkaz a tlačítko kopírovat */
+        .link-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+        .generated-link { flex: 1; color: #00a2ff; word-break: break-all; font-size: 0.85em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .copy-btn { background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 3px; cursor: pointer; font-size: 0.8em; font-weight: bold; transition: background 0.2s; white-space: nowrap; }
+        .copy-btn:hover { background: #0056b3; }
+
         .model-item { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 5px; border-left: 4px solid transparent; }
         .model-item-left { display: flex; align-items: center; overflow: hidden; }
         .model-item input[type="checkbox"] { margin-right: 12px; cursor: pointer; width: 18px; height: 18px; flex-shrink: 0; }
@@ -35,8 +40,6 @@
         .del-file-btn { color: #dc3545; cursor: pointer; font-weight: bold; font-size: 1.2em; margin-left: 10px; padding: 0 5px; }
 
         #viewer { width: 100vw; height: 100vh; display: block; }
-        
-        /* Kontejner pro orientační kostku */
         #viewcube-container { position: absolute; top: 20px; right: 20px; width: 150px; height: 150px; z-index: 20; cursor: pointer; }
         
         #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
@@ -70,7 +73,10 @@
                 </label>
                 <div id="link-container">
                     <strong style="color: #00a2ff;">Odkaz pro sdílení:</strong>
-                    <a id="share-link" class="generated-link" href="#" target="_blank"></a>
+                    <div class="link-row">
+                        <a id="share-link" class="generated-link" href="#" target="_blank"></a>
+                        <button id="copy-link-btn" class="copy-btn">Kopírovat</button>
+                    </div>
                 </div>
                 <div class="btn-group">
                     <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
@@ -102,6 +108,7 @@
         const fileInput = document.getElementById('file-input');
         const linkContainer = document.getElementById('link-container');
         const shareLink = document.getElementById('share-link');
+        const copyLinkBtn = document.getElementById('copy-link-btn');
         const modelList = document.getElementById('model-list');
         const loaderOverlay = document.getElementById('loader-overlay');
         const resetBtn = document.getElementById('reset-btn');
@@ -109,7 +116,6 @@
 
         let currentSessionId = new URLSearchParams(window.location.search).get('id');
 
-        // --- HLAVNÍ SCÉNA ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a1a1a);
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
@@ -126,7 +132,7 @@
         scene.add(dirLight);
 
         const modelsGroup = new THREE.Group();
-        modelsGroup.rotation.x = -Math.PI / 2; // Převod ze Z-up na Y-up
+        modelsGroup.rotation.x = -Math.PI / 2;
         scene.add(modelsGroup);
 
         // --- ORIENTAČNÍ KOSTKA (ViewCube) ---
@@ -154,48 +160,45 @@
             new THREE.MeshBasicMaterial({ map: createCubeLabel('LATERAL', '#ff4444') }),  // +X
             new THREE.MeshBasicMaterial({ map: createCubeLabel('MEDIAL', '#ff4444') }),   // -X
             new THREE.MeshBasicMaterial({ map: createCubeLabel('SUPERIOR', '#44ff44') }), // +Y
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('INFERIOR', '#44ff44') }), // -Y
+            new THREE.MeshBasicMaterial({ map: createCubeLabel('INFERIOR', '#ffff00') }), // -Y (TEĎ ŽLUTĚ)
             new THREE.MeshBasicMaterial({ map: createCubeLabel('ANTERIOR', '#4444ff') }), // +Z
             new THREE.MeshBasicMaterial({ map: createCubeLabel('POSTERIOR', '#4444ff') }) // -Z
         ];
         const orientCube = new THREE.Mesh(cubeGeo, cubeMats);
         cubeScene.add(orientCube);
 
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
         document.getElementById('viewcube-container').addEventListener('click', (e) => {
             const rect = cubeRenderer.domElement.getBoundingClientRect();
-            mouse.x = ((e.clientX - rect.left) / cubeSize) * 2 - 1;
-            mouse.y = -((e.clientY - rect.top) / cubeSize) * 2 + 1;
+            const mouse = new THREE.Vector2(((e.clientX - rect.left) / cubeSize) * 2 - 1, -((e.clientY - rect.top) / cubeSize) * 2 + 1);
+            const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, cubeCamera);
             const intersects = raycaster.intersectObject(orientCube);
-            if (intersects.length > 0) {
-                const faceIndex = Math.floor(intersects[0].faceIndex / 2);
-                alignCamera(faceIndex);
-            }
+            if (intersects.length > 0) alignCamera(Math.floor(intersects[0].faceIndex / 2));
         });
 
         function alignCamera(faceIndex) {
             const box = new THREE.Box3().setFromObject(modelsGroup);
             const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            const distance = Math.max(size.x, size.y, size.z) * 1.8 || 250;
-            
-            const positions = [
-                new THREE.Vector3(center.x + distance, center.y, center.z), // Lateral
-                new THREE.Vector3(center.x - distance, center.y, center.z), // Medial
-                new THREE.Vector3(center.x, center.y + distance, center.z), // Superior
-                new THREE.Vector3(center.x, center.y - distance, center.z), // Inferior
-                new THREE.Vector3(center.x, center.y, center.z + distance), // Anterior
-                new THREE.Vector3(center.x, center.y, center.z - distance)  // Posterior
-            ];
-
-            camera.position.copy(positions[faceIndex]);
-            controls.target.copy(center);
-            controls.update();
+            const distance = Math.max(box.getSize(new THREE.Vector3()).x, box.getSize(new THREE.Vector3()).y, box.getSize(new THREE.Vector3()).z) * 1.8 || 250;
+            const pos = [new THREE.Vector3(center.x + distance, center.y, center.z), new THREE.Vector3(center.x - distance, center.y, center.z), new THREE.Vector3(center.x, center.y + distance, center.z), new THREE.Vector3(center.x, center.y - distance, center.z), new THREE.Vector3(center.x, center.y, center.z + distance), new THREE.Vector3(center.x, center.y, center.z - distance)];
+            camera.position.copy(pos[faceIndex]);
+            controls.target.copy(center); controls.update();
         }
 
-        // --- UI A LOGIKA UPLOADU ---
+        // --- KOPÍROVÁNÍ ODKAZU ---
+        copyLinkBtn.onclick = () => {
+            const linkText = shareLink.innerText;
+            navigator.clipboard.writeText(linkText).then(() => {
+                const originalText = copyLinkBtn.innerText;
+                copyLinkBtn.innerText = "Zkopírováno!";
+                copyLinkBtn.style.background = "#28a745";
+                setTimeout(() => {
+                    copyLinkBtn.innerText = originalText;
+                    copyLinkBtn.style.background = "#007bff";
+                }, 2000);
+            });
+        };
+
         toggleMenuBtn.onclick = () => {
             uiContent.classList.toggle('collapsed');
             toggleIcon.style.transform = uiContent.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
@@ -206,20 +209,15 @@
             if (!id) return;
             if (!targetId) uploadBox.style.display = 'none';
             else { resetBtn.style.display = 'block'; deleteAllBtn.style.display = 'block'; }
-
             loaderOverlay.style.display = 'flex';
             const { data } = await supabase.storage.from('models').list(`shared/${id}`);
             const colors = [0x007bff, 0xdc3545, 0x28a745, 0xffc107, 0x17a2b8, 0x6f42c1, 0xfd7e14, 0xe83e8c, 0x20c997, 0x6610f2, 0xadb5bd, 0x94d82d, 0xff922b, 0x51cf66, 0x339af0, 0xcc5de8, 0xf06595, 0xffd43b, 0x845ef7, 0x00d4ff];
-            
-            let colorIdx = 0;
-            modelList.innerHTML = ""; modelsGroup.clear(); 
-
+            let colorIdx = 0; modelList.innerHTML = ""; modelsGroup.clear(); 
             for (const file of (data || [])) {
                 if(file.name.startsWith('.')) continue;
                 const { data: pUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${file.name}`);
                 await loadAndRender(pUrl.publicUrl, file.name, colors[colorIdx++ % colors.length], !!targetId);
             }
-            
             const box = new THREE.Box3().setFromObject(modelsGroup);
             const center = box.getCenter(new THREE.Vector3());
             controls.target.copy(center); controls.update();
@@ -232,27 +230,21 @@
                 loader.load(url, (result) => {
                     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide });
                     let mesh = result.isMesh ? result : result.children[0];
-                    if(!result.isMesh) result.traverse(c => { if(c.isMesh) c.material = material; });
-                    else mesh.material = material;
+                    if(!result.isMesh) result.traverse(c => { if(c.isMesh) c.material = material; }); else mesh.material = material;
                     modelsGroup.add(result.isMesh ? mesh : result);
-                    
-                    const emptyMsg = document.getElementById('empty-msg');
-                    if (emptyMsg) emptyMsg.style.display = 'none';
-                    
+                    if (document.getElementById('empty-msg')) document.getElementById('empty-msg').style.display = 'none';
                     const div = document.createElement('div');
                     div.className = 'model-item';
                     const colorStr = '#' + new THREE.Color(color).getHexString();
                     div.style.borderLeftColor = colorStr;
-                    const delBtnHtml = isUploader ? `<span class="del-file-btn">×</span>` : "";
-                    
-                    div.innerHTML = `<div class="model-item-left"><input type="checkbox" checked><label style="color:${colorStr}">${name}</label></div>${delBtnHtml}`;
+                    div.innerHTML = `<div class="model-item-left"><input type="checkbox" checked><label style="color:${colorStr}">${name}</label></div>${isUploader ? '<span class="del-file-btn">×</span>' : ""}`;
                     div.querySelector('input').onchange = (e) => { (result.isMesh ? mesh : result).visible = e.target.checked; };
-                    
                     if(isUploader) {
                         div.querySelector('.del-file-btn').onclick = async () => {
-                            if(!confirm(`Smazat ${name}?`)) return;
-                            await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]);
-                            modelsGroup.remove(result.isMesh ? mesh : result); div.remove();
+                            if(confirm(`Smazat ${name}?`)) {
+                                await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]);
+                                modelsGroup.remove(result.isMesh ? mesh : result); div.remove();
+                            }
                         };
                     }
                     modelList.appendChild(div); res();
@@ -267,13 +259,9 @@
                 if (file.name.endsWith('.zip')) {
                     const zip = await JSZip.loadAsync(file);
                     for (const [path, entry] of Object.entries(zip.files)) {
-                        if (!entry.dir && (path.endsWith('.stl') || path.endsWith('.obj'))) {
-                            await supabase.storage.from('models').upload(`shared/${currentSessionId}/${path.split('/').pop()}`, await entry.async("blob"));
-                        }
+                        if (!entry.dir && (path.endsWith('.stl') || path.endsWith('.obj'))) await supabase.storage.from('models').upload(`shared/${currentSessionId}/${path.split('/').pop()}`, await entry.async("blob"));
                     }
-                } else {
-                    await supabase.storage.from('models').upload(`shared/${currentSessionId}/${file.name}`, file);
-                }
+                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${file.name}`, file);
             }
             const url = `${window.location.origin}${window.location.pathname}?id=${currentSessionId}`;
             shareLink.href = url; shareLink.innerText = url; linkContainer.style.display = 'block';
@@ -281,10 +269,11 @@
         };
 
         deleteAllBtn.onclick = async () => {
-            if(!confirm("Smazat vše?")) return;
-            const { data } = await supabase.storage.from('models').list(`shared/${currentSessionId}`);
-            if(data) await supabase.storage.from('models').remove(data.map(f => `shared/${currentSessionId}/${f.name}`));
-            location.reload();
+            if(confirm("Smazat vše?")) {
+                const { data } = await supabase.storage.from('models').list(`shared/${currentSessionId}`);
+                if(data) await supabase.storage.from('models').remove(data.map(f => `shared/${currentSessionId}/${f.name}`));
+                location.reload();
+            }
         };
 
         resetBtn.onclick = () => window.location.href = window.location.pathname;
@@ -300,315 +289,7 @@
         if(currentSessionId && window.location.search.includes('id=')) fetchSharedModels();
         animate();
         window.onresize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        };
-    </script>
-</body>
-</html><!DOCTYPE html>
-<html lang="cs">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D prohlížeč 💾</title>
-    <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
-        #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 280px; max-width: 350px; z-index: 10; border: 1px solid #444; }
-        .header-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(10, 10, 10, 0.6); border-radius: 10px 10px 0 0; cursor: pointer; user-select: none; }
-        .header-bar h2 { margin: 0; font-size: 1.2em; pointer-events: none; }
-        #ui-content { padding: 0 20px 20px 20px; max-height: 75vh; overflow-y: auto; display: block; }
-        #ui-content.collapsed { display: none; } 
-        .upload-section { margin-top: 15px; margin-bottom: 20px; border-bottom: 1px solid #555; padding-bottom: 20px; }
-        .upload-btn { background: #007bff; color: white; padding: 10px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; transition: background 0.2s;}
-        .upload-btn:hover { background: #0056b3; }
-        input[type="file"] { display: none; }
-        
-        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
-        .reset-btn { background: #6c757d; color: white; padding: 8px; border-radius: 5px; cursor: pointer; text-align: center; flex: 1; font-weight: 600; border: none; transition: background 0.2s;}
-        .delete-all-btn { background: #dc3545; color: white; padding: 8px; border-radius: 5px; cursor: pointer; text-align: center; flex: 1; font-weight: 600; border: none; transition: background 0.2s;}
-
-        #link-container { display: none; margin-top: 15px; padding: 12px; background: rgba(0, 123, 255, 0.1); border: 1px solid #007bff; border-radius: 5px; }
-        .generated-link { display: block; margin-top: 8px; color: #00a2ff; word-break: break-all; font-size: 0.85em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; }
-        
-        .model-item { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 5px; border-left: 4px solid transparent; }
-        .model-item-left { display: flex; align-items: center; overflow: hidden; }
-        .model-item input[type="checkbox"] { margin-right: 12px; cursor: pointer; width: 18px; height: 18px; flex-shrink: 0; }
-        .model-item label { cursor: pointer; word-break: break-all; font-weight: 600; font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        
-        .del-file-btn { color: #dc3545; cursor: pointer; font-weight: bold; font-size: 1.2em; margin-left: 10px; padding: 0 5px; border-radius: 3px; }
-
-        #viewer { width: 100vw; height: 100vh; display: block; }
-        #viewcube-container { position: absolute; top: 20px; right: 20px; width: 120px; height: 120px; z-index: 20; cursor: pointer; }
-        
-        #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-</head>
-<body>
-    <div id="loader-overlay">
-        <div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
-        <p id="loader-text" style="margin-top: 15px;">Pracuji na tom...</p>
-    </div>
-
-    <div id="ui-container">
-        <div id="toggle-menu-btn" class="header-bar">
-            <h2>⚙️ 3D prohlížeč 💾</h2>
-            <span id="toggle-icon" style="transition: transform 0.2s; font-size: 1.2em;">▼</span>
-        </div>
-        <div id="ui-content">
-            <div id="upload-box" class="upload-section">
-                <label class="upload-btn">Nahrát STL / OBJ / ZIP
-                    <input type="file" id="file-input" multiple accept=".stl, .obj, .zip">
-                </label>
-                <div id="link-container">
-                    <strong style="color: #00a2ff;">Odkaz pro sdílení:</strong>
-                    <a id="share-link" class="generated-link" href="#" target="_blank"></a>
-                </div>
-                <div class="btn-group">
-                    <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
-                    <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
-                </div>
-            </div>
-            <div id="model-list"><em id="empty-msg" style="color: #aaa; font-size: 0.9em;">Žádné modely k zobrazení.</em></div>
-        </div>
-    </div>
-
-    <div id="viewcube-container"></div>
-    <div id="viewer"></div>
-
-    <script type="module">
-        import * as THREE from 'three';
-        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-
-        const SUPABASE_URL = 'https://aukjrwkjvuhmbfqqgoav.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3';
-        const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-        const toggleMenuBtn = document.getElementById('toggle-menu-btn');
-        const uiContent = document.getElementById('ui-content');
-        const toggleIcon = document.getElementById('toggle-icon');
-        const uploadBox = document.getElementById('upload-box');
-        const fileInput = document.getElementById('file-input');
-        const linkContainer = document.getElementById('link-container');
-        const shareLink = document.getElementById('share-link');
-        const modelList = document.getElementById('model-list');
-        const loaderOverlay = document.getElementById('loader-overlay');
-        const resetBtn = document.getElementById('reset-btn');
-        const deleteAllBtn = document.getElementById('delete-all-btn');
-
-        let currentSessionId = new URLSearchParams(window.location.search).get('id');
-
-        // --- HLAVNÍ SCÉNA ---
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a1a);
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
-        camera.position.set(200, 200, 200);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.getElementById('viewer').appendChild(renderer.domElement);
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-
-        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-        dirLight.position.set(100, 100, 100);
-        scene.add(dirLight);
-
-        const modelsGroup = new THREE.Group();
-        modelsGroup.rotation.x = -Math.PI / 2;
-        scene.add(modelsGroup);
-
-        // --- ORIENTAČNÍ KRYCHLE (ViewCube) ---
-        const cubeSize = 120;
-        const cubeScene = new THREE.Scene();
-        const cubeCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
-        cubeCamera.position.set(0, 0, 200);
-        const cubeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        cubeRenderer.setSize(cubeSize, cubeSize);
-        document.getElementById('viewcube-container').appendChild(cubeRenderer.domElement);
-
-        function createCubeLabel(text, color) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 128; canvas.height = 128;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#333'; ctx.fillRect(0, 0, 128, 128);
-            ctx.strokeStyle = '#666'; ctx.lineWidth = 8; ctx.strokeRect(0, 0, 128, 128);
-            ctx.fillStyle = color; ctx.font = 'bold 20px Segoe UI'; ctx.textAlign = 'center';
-            ctx.fillText(text, 64, 70);
-            return new THREE.CanvasTexture(canvas);
-        }
-
-        const cubeGeo = new THREE.BoxGeometry(80, 80, 80);
-        const cubeMats = [
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('LATERAL', '#ff4444') }),  // Right (+X)
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('MEDIAL', '#ff4444') }),   // Left (-X)
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('SUPERIOR', '#44ff44') }), // Top (+Y)
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('INFERIOR', '#44ff44') }), // Bottom (-Y)
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('ANTERIOR', '#4444ff') }), // Front (+Z)
-            new THREE.MeshBasicMaterial({ map: createCubeLabel('POSTERIOR', '#4444ff') }) // Back (-Z)
-        ];
-        const orientCube = new THREE.Mesh(cubeGeo, cubeMats);
-        cubeScene.add(orientCube);
-
-        // Raycasting pro klikání na krychli
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-        document.getElementById('viewcube-container').addEventListener('click', (e) => {
-            const rect = cubeRenderer.domElement.getBoundingClientRect();
-            mouse.x = ((e.clientX - rect.left) / cubeSize) * 2 - 1;
-            mouse.y = -((e.clientY - rect.top) / cubeSize) * 2 + 1;
-            raycaster.setFromCamera(mouse, cubeCamera);
-            const intersects = raycaster.intersectObject(orientCube);
-            if (intersects.length > 0) {
-                const faceIndex = Math.floor(intersects[0].faceIndex / 2);
-                alignCamera(faceIndex);
-            }
-        });
-
-        function alignCamera(faceIndex) {
-            const box = new THREE.Box3().setFromObject(modelsGroup);
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            const distance = Math.max(size.x, size.y, size.z) * 1.5 || 200;
-            
-            const positions = [
-                new THREE.Vector3(center.x + distance, center.y, center.z), // Lateral
-                new THREE.Vector3(center.x - distance, center.y, center.z), // Medial
-                new THREE.Vector3(center.x, center.y + distance, center.z), // Superior
-                new THREE.Vector3(center.x, center.y - distance, center.z), // Inferior
-                new THREE.Vector3(center.x, center.y, center.z + distance), // Anterior
-                new THREE.Vector3(center.x, center.y, center.z - distance)  // Posterior
-            ];
-
-            const targetPos = positions[faceIndex];
-            camera.position.copy(targetPos);
-            controls.target.copy(center);
-            controls.update();
-        }
-
-        // --- ZBYTEK LOGIKY (Supabase, Loading, atd.) ---
-        toggleMenuBtn.onclick = () => {
-            uiContent.classList.toggle('collapsed');
-            toggleIcon.style.transform = uiContent.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)';
-        };
-
-        async function fetchSharedModels(targetId) {
-            const id = targetId || currentSessionId;
-            if (!id) return;
-            if (!targetId) uploadBox.style.display = 'none';
-            else { resetBtn.style.display = 'block'; deleteAllBtn.style.display = 'block'; }
-
-            loaderOverlay.style.display = 'flex';
-            const { data } = await supabase.storage.from('models').list(`shared/${id}`);
-            const colors = [0x007bff, 0xdc3545, 0x28a745, 0xffc107, 0x17a2b8, 0x6f42c1, 0xfd7e14, 0xe83e8c, 0x20c997, 0x6610f2, 0xadb5bd, 0x94d82d, 0xff922b, 0x51cf66, 0x339af0, 0xcc5de8, 0xf06595, 0xffd43b, 0x845ef7, 0x00d4ff];
-            
-            let colorIdx = 0;
-            modelList.innerHTML = ""; modelsGroup.clear(); 
-
-            for (const file of (data || [])) {
-                if(file.name.startsWith('.')) continue;
-                const { data: pUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${file.name}`);
-                await loadAndRender(pUrl.publicUrl, file.name, colors[colorIdx++ % colors.length], !!targetId);
-            }
-            
-            const box = new THREE.Box3().setFromObject(modelsGroup);
-            const center = box.getCenter(new THREE.Vector3());
-            controls.target.copy(center); controls.update();
-            loaderOverlay.style.display = 'none';
-        }
-
-        async function loadAndRender(url, name, color, isUploader) {
-            const loader = name.toLowerCase().endsWith('.obj') ? new OBJLoader() : new STLLoader();
-            return new Promise(res => {
-                loader.load(url, (result) => {
-                    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide });
-                    let mesh = result.isMesh ? result : result.children[0];
-                    if(!result.isMesh) result.traverse(c => { if(c.isMesh) c.material = material; });
-                    else mesh.material = material;
-                    modelsGroup.add(result.isMesh ? mesh : result);
-                    
-                    const emptyMsg = document.getElementById('empty-msg');
-                    if (emptyMsg) emptyMsg.style.display = 'none';
-                    
-                    const div = document.createElement('div');
-                    div.className = 'model-item';
-                    const colorStr = '#' + new THREE.Color(color).getHexString();
-                    div.style.borderLeftColor = colorStr;
-                    const delBtnHtml = isUploader ? `<span class="del-file-btn" onclick="this.parentElement.dataset.del='1'">×</span>` : "";
-                    
-                    div.innerHTML = `<div class="model-item-left"><input type="checkbox" checked><label style="color:${colorStr}">${name}</label></div>${delBtnHtml}`;
-                    div.querySelector('input').onchange = (e) => { (result.isMesh ? mesh : result).visible = e.target.checked; };
-                    
-                    if(isUploader) {
-                        div.querySelector('.del-file-btn').onclick = async () => {
-                            if(!confirm(`Smazat ${name}?`)) return;
-                            await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]);
-                            modelsGroup.remove(result.isMesh ? mesh : result); div.remove();
-                        };
-                    }
-                    modelList.appendChild(div); res();
-                });
-            });
-        }
-
-        fileInput.onchange = async (e) => {
-            if(!currentSessionId) currentSessionId = Math.random().toString(36).substring(2, 10);
-            loaderOverlay.style.display = 'flex';
-            for (const file of e.target.files) {
-                if (file.name.endsWith('.zip')) {
-                    const zip = await JSZip.loadAsync(file);
-                    for (const [path, entry] of Object.entries(zip.files)) {
-                        if (!entry.dir && (path.endsWith('.stl') || path.endsWith('.obj'))) {
-                            await supabase.storage.from('models').upload(`shared/${currentSessionId}/${path.split('/').pop()}`, await entry.async("blob"));
-                        }
-                    }
-                } else {
-                    await supabase.storage.from('models').upload(`shared/${currentSessionId}/${file.name}`, file);
-                }
-            }
-            const url = `${window.location.origin}${window.location.pathname}?id=${currentSessionId}`;
-            shareLink.href = url; shareLink.innerText = url; linkContainer.style.display = 'block';
-            await fetchSharedModels(currentSessionId);
-        };
-
-        deleteAllBtn.onclick = async () => {
-            if(!confirm("Smazat vše?")) return;
-            const { data } = await supabase.storage.from('models').list(`shared/${currentSessionId}`);
-            if(data) await supabase.storage.from('models').remove(data.map(f => `shared/${currentSessionId}/${f.name}`));
-            location.reload();
-        };
-
-        resetBtn.onclick = () => window.location.href = window.location.pathname;
-
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            
-            // Synchronizace orientační krychle s hlavní kamerou
-            orientCube.quaternion.copy(camera.quaternion).invert();
-            
-            renderer.render(scene, camera);
-            cubeRenderer.render(cubeScene, cubeCamera);
-        }
-        
-        if(currentSessionId && window.location.search.includes('id=')) fetchSharedModels();
-        animate();
-        window.onresize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         };
     </script>
