@@ -338,7 +338,7 @@
                     <div class="item-actions">
                         ${annot.type === 'paint' ? '<span class="icon-btn export-btn" title="Exportovat jako STL">💾</span>' : ''}
                         <span class="icon-btn edit-btn" title="Upravit text">✏️</span>
-                        <span class="icon-btn del-btn" title="Smazat">🗑️</span>
+                        <span class="icon-btn del-btn" title="Smazat">❌️</span>
                     </div>
                 </div>
             `;
@@ -352,11 +352,10 @@
             if (annot.type === 'paint') {
                 div.querySelector('.export-btn').onclick = (e) => {
                     e.stopPropagation();
-                    // Náprava souřadnic - provedeme inverzi původní rotace modelů
                     const exportGroup = new THREE.Group();
                     const clone = annot.meshGroup.clone();
                     exportGroup.add(clone);
-                    exportGroup.rotation.x = Math.PI / 2; // Vrácení rotace ze světa do lokálních souřadnic modelů
+                    exportGroup.rotation.x = Math.PI / 2; 
                     exportGroup.updateMatrixWorld(true);
 
                     const exporter = new STLExporter();
@@ -397,16 +396,17 @@
         async function saveAnnotations() {
             if(!currentSessionId) return;
             const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, text: a.text, color: a.color }));
+            // Přidán parametr upsert pro bezpečný přepis souboru s anotacemi
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }), { upsert: true });
         }
 
         async function saveColors() {
             if(!currentSessionId) return;
+            // Přidán parametr upsert pro bezpečný přepis souboru s barvami
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/colors.json`, new Blob([JSON.stringify(modelColors)], { type: 'application/json' }), { upsert: true });
         }
 
         async function loadAnnotationsAndColors(id) {
-            // Obejití Cache přidáním unikátního timestampu - zaručí čerstvá data!
             const cb = '?t=' + Date.now();
             
             const { data: cUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/colors.json`);
@@ -462,7 +462,6 @@
             
             document.getElementById('loader-overlay').style.display = 'flex';
             
-            // Vyčištění plochy, aby se při dalším uploadu nestackovaly anotace a modely
             document.getElementById('model-list').innerHTML = ""; 
             modelsGroup.clear(); annotationsGroup.clear(); annotations = []; 
             document.getElementById('comment-list').innerHTML = "<em>Zatím žádná data.</em>";
@@ -533,8 +532,19 @@
                         const val = parseFloat(e.target.value);
                         if (isSTL) model.material.opacity = val; else model.traverse(c => { if(c.isMesh) c.material.opacity = val; });
                     };
+                    
+                    // KONTROLA BEZPEČNÉHO SMAZÁNÍ
                     if(isU) d.querySelector('.del-btn').onclick = async () => {
-                        if(confirm(`Smazat ${disp}?`)) { await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); modelsGroup.remove(model); d.remove(); }
+                        if(confirm(`Smazat ${disp}?`)) { 
+                            const { error } = await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]);
+                            if (error) {
+                                alert("Chyba: Databáze odmítla soubor smazat. Zkontrolujte prosím pravidlo DELETE v Supabase (Policies).");
+                                console.error(error);
+                            } else {
+                                modelsGroup.remove(model); 
+                                d.remove(); 
+                            }
+                        }
                     };
                     document.getElementById('model-list').appendChild(d); res();
                 });
@@ -576,6 +586,7 @@
             }
         });
 
+        // Přidán parametr upsert pro bezproblémové přepisování při nahrávání
         async function handleUpload(files) {
             if(!currentSessionId) currentSessionId = Math.random().toString(36).substring(2, 10);
             document.getElementById('loader-overlay').style.display = 'flex';
@@ -584,11 +595,11 @@
                     const z = await JSZip.loadAsync(f);
                     for (const [p, en] of Object.entries(z.files)) { 
                         if (!en.dir && (p.endsWith('.stl') || p.endsWith('.obj'))) {
-                            await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob")); 
+                            await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob"), { upsert: true }); 
                         }
                     }
                 } else {
-                    await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f);
+                    await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f, { upsert: true });
                 }
             }
             window.history.replaceState({}, '', `${window.location.pathname}?id=${currentSessionId}`);
@@ -638,8 +649,16 @@
         document.getElementById('delete-all-btn').onclick = async () => {
             if(confirm("Smazat vše?")) {
                 const { data } = await supabase.storage.from('models').list(`shared/${currentSessionId}`);
-                if(data) await supabase.storage.from('models').remove(data.map(f => `shared/${currentSessionId}/${f.name}`));
-                location.reload();
+                if(data && data.length > 0) {
+                    const { error } = await supabase.storage.from('models').remove(data.map(f => `shared/${currentSessionId}/${f.name}`));
+                    if (error) {
+                        alert("Chyba při mazání. Zkontrolujte pravidlo DELETE v Supabase.");
+                    } else {
+                        location.reload();
+                    }
+                } else {
+                    location.reload();
+                }
             }
         };
 
