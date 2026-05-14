@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💾3D prohlížeč </title>
+    <title>💾 3D prohlížeč</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
         #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 300px; max-width: 380px; z-index: 10; border: 1px solid #444; display: flex; flex-direction: column; max-height: 90vh; }
@@ -49,11 +49,13 @@
         .export-btn { color: #0dcaf0; }
 
         .slider-group { margin-top: 8px; }
-        .slider-group input { width: 100%; height: 3px; accent-color: #007bff; cursor: pointer; }
-        .slider-label { font-size: 0.65em; color: #888; text-transform: uppercase; margin-top: 2px;}
-
+        .slider-group input[type="range"] { width: 100%; height: 3px; accent-color: #007bff; cursor: pointer; }
+        
         .clipping-section { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px dashed #555; }
         .clipping-section h3 { font-size: 0.85em; margin: 0 0 10px 0; color: #aaa; text-transform: uppercase; }
+        .clip-row { display: flex; align-items: center; margin-bottom: 2px; }
+        .clip-row input[type="checkbox"] { margin-right: 8px; cursor: pointer; }
+        .clip-label { font-size: 0.7em; color: #ccc; text-transform: uppercase; user-select: none; cursor: pointer; }
 
         #viewcube-container { position: absolute; top: 20px; right: 20px; width: 130px; height: 130px; z-index: 20; }
         #viewer { width: 100vw; height: 100vh; display: block; }
@@ -69,18 +71,18 @@
 </head>
 <body>
     <div id="loader-overlay"><div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite;"></div></div>
-    <div id="drop-zone">📂 Upusťte modely sem</div>
+    <div id="drop-zone">📂 Odložte modely sem</div>
     <div id="labels-container"></div>
 
     <div id="ui-container">
         <div class="toolbar">
             <button id="tool-view" class="tool-btn active">🖐️ Prohlížet</button>
-            <button id="tool-paint" class="tool-btn">🖌️ Malovat</button>
-            <button id="tool-measure" class="tool-btn">📏 Měřit</button>
+            <button id="tool-paint" class="tool-btn">🖌️ Označit</button>
+            <button id="tool-measure" class="tool-btn">📏 změřit</button>
         </div>
 
         <div class="header-bar" onclick="toggleSection('ui-models', 'icon-models')">
-            <h2>⚙️ Modely a ořezy</h2><span id="icon-models">▼</span>
+            <h2>⚙️ Modely a řezy</h2><span id="icon-models">▼</span>
         </div>
         <div id="ui-models" class="ui-section-content">
             <label class="upload-btn" id="upload-label">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
@@ -100,9 +102,18 @@
             
             <div class="clipping-section">
                 <h3>Řezné roviny</h3>
-                <div class="slider-group"><input type="range" id="clip-x" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez X (Sagitální)</div></div>
-                <div class="slider-group"><input type="range" id="clip-y" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez Y (Axiální)</div></div>
-                <div class="slider-group"><input type="range" id="clip-z" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez Z (Koronární)</div></div>
+                <div class="slider-group">
+                    <div class="clip-row"><input type="checkbox" id="clip-x-toggle"><label class="clip-label" for="clip-x-toggle">SAG</label></div>
+                    <input type="range" id="clip-x" step="0.5">
+                </div>
+                <div class="slider-group">
+                    <div class="clip-row"><input type="checkbox" id="clip-y-toggle"><label class="clip-label" for="clip-y-toggle">AX</label></div>
+                    <input type="range" id="clip-y" step="0.5">
+                </div>
+                <div class="slider-group">
+                    <div class="clip-row"><input type="checkbox" id="clip-z-toggle"><label class="clip-label" for="clip-z-toggle">COR</label></div>
+                    <input type="range" id="clip-z" step="0.5">
+                </div>
             </div>
 
             <div id="model-list"></div>
@@ -124,7 +135,7 @@
         import { STLLoader } from 'three/addons/loaders/STLLoader.js';
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { STLExporter } from 'three/addons/exporters/STLExporter.js'; // PŘIDÁNO: Knihovna pro export
+        import { STLExporter } from 'three/addons/exporters/STLExporter.js';
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
         const supabase = createClient('https://aukjrwkjvuhmbfqqgoav.supabase.co', 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3');
@@ -135,7 +146,8 @@
         let isInteracting = false;
         
         let annotations = [];
-        const commentColors = [0x005A3B, 0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x1A1A1A, 0xffa500];
+        let modelColors = {}; 
+        const commentColors = [0x005a3b, 0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x1a1a1a, 0xffa500];
         
         let currentStroke = [];
         let tempPaintGroup = null;
@@ -154,14 +166,19 @@
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
         const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
 
-        const clipX = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 300);
-        const clipY = new THREE.Plane(new THREE.Vector3(0, -1, 0), 300);
-        const clipZ = new THREE.Plane(new THREE.Vector3(0, 0, -1), 300);
+        const clipX = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 100000); 
+        const clipY = new THREE.Plane(new THREE.Vector3(0, -1, 0), 100000);
+        const clipZ = new THREE.Plane(new THREE.Vector3(0, 0, -1), 100000);
         const globalClipPlanes = [clipX, clipY, clipZ];
 
-        document.getElementById('clip-x').oninput = e => { clipX.constant = parseFloat(e.target.value); };
-        document.getElementById('clip-y').oninput = e => { clipY.constant = parseFloat(e.target.value); };
-        document.getElementById('clip-z').oninput = e => { clipZ.constant = parseFloat(e.target.value); };
+        function updateClipping() {
+            clipX.constant = document.getElementById('clip-x-toggle').checked ? parseFloat(document.getElementById('clip-x').value) : 100000;
+            clipY.constant = document.getElementById('clip-y-toggle').checked ? parseFloat(document.getElementById('clip-y').value) : 100000;
+            clipZ.constant = document.getElementById('clip-z-toggle').checked ? parseFloat(document.getElementById('clip-z').value) : 100000;
+        }
+
+        ['clip-x', 'clip-y', 'clip-z'].forEach(id => document.getElementById(id).addEventListener('input', updateClipping));
+        ['clip-x-toggle', 'clip-y-toggle', 'clip-z-toggle'].forEach(id => document.getElementById(id).addEventListener('change', updateClipping));
 
         window.toggleSection = (id, iconId) => {
             const el = document.getElementById(id); const icon = document.getElementById(iconId);
@@ -267,7 +284,6 @@
             }
         });
 
-        // ÚPRAVA: Menší poloměr (0.6) a méně segmentů koulí pro menší datovou náročnost a přesnější linku
         function addSphereToGroup(group, pos, color) {
             const m = new THREE.MeshBasicMaterial({ color: color });
             const s = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 12), m);
@@ -313,7 +329,6 @@
             div.className = 'item-row';
             div.style.borderLeftColor = '#' + new THREE.Color(annot.color).getHexString();
             
-            // ÚPRAVA UI: Přidána ikona diskety pro uložení STL pro nástroj paint
             div.innerHTML = `
                 <div class="item-top">
                     <div class="item-left">
@@ -334,17 +349,22 @@
                 if(annot.htmlElement) annot.htmlElement.style.display = annot.visible ? 'block' : 'none';
             };
 
-            // LOGIKA EXPORTU DO STL POUZE PRO NÁKRESY
             if (annot.type === 'paint') {
                 div.querySelector('.export-btn').onclick = (e) => {
                     e.stopPropagation();
+                    // Náprava souřadnic - provedeme inverzi původní rotace modelů
+                    const exportGroup = new THREE.Group();
+                    const clone = annot.meshGroup.clone();
+                    exportGroup.add(clone);
+                    exportGroup.rotation.x = Math.PI / 2; // Vrácení rotace ze světa do lokálních souřadnic modelů
+                    exportGroup.updateMatrixWorld(true);
+
                     const exporter = new STLExporter();
-                    const stlString = exporter.parse(annot.meshGroup);
+                    const stlString = exporter.parse(exportGroup);
                     const blob = new Blob([stlString], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    // Jméno stahovaného souboru dle popisku
                     a.download = `nakres_${annot.text.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'export'}.stl`; 
                     a.click();
                     URL.revokeObjectURL(url);
@@ -377,36 +397,52 @@
         async function saveAnnotations() {
             if(!currentSessionId) return;
             const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, text: a.text, color: a.color }));
-            await supabase.storage.from('models').remove([`shared/${currentSessionId}/annotations.json`]);
-            if(payload.length > 0) await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+            await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }), { upsert: true });
         }
 
-        async function loadAnnotations(id) {
-            const { data } = await supabase.storage.from('models').download(`shared/${id}/annotations.json`);
-            if (data) {
-                const list = JSON.parse(await data.text());
-                for (const a of list) {
-                    if (a.type === 'paint') {
-                        const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z));
-                        const grp = new THREE.Group();
-                        pts.forEach(p => addSphereToGroup(grp, p, a.color));
-                        annotationsGroup.add(grp);
-                        const annot = { ...a, visible: true, meshGroup: grp };
-                        annotations.push(annot); renderAnnotationUI(annot);
-                    } else if (a.type === 'measure') {
-                        const p1 = new THREE.Vector3(a.data.p1.x, a.data.p1.y, a.data.p1.z);
-                        const p2 = new THREE.Vector3(a.data.p2.x, a.data.p2.y, a.data.p2.z);
-                        const grp = new THREE.Group();
-                        addSphereToGroup(grp, p1, a.color); addSphereToGroup(grp, p2, a.color);
-                        grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: a.color })));
-                        annotationsGroup.add(grp);
-                        const div = document.createElement('div'); div.className = 'measure-label'; div.innerText = a.text;
-                        document.getElementById('labels-container').appendChild(div);
-                        const annot = { ...a, visible: true, meshGroup: grp, htmlElement: div, data: {p1, p2, dist: a.data.dist} };
-                        annotations.push(annot); renderAnnotationUI(annot);
+        async function saveColors() {
+            if(!currentSessionId) return;
+            await supabase.storage.from('models').upload(`shared/${currentSessionId}/colors.json`, new Blob([JSON.stringify(modelColors)], { type: 'application/json' }), { upsert: true });
+        }
+
+        async function loadAnnotationsAndColors(id) {
+            // Obejití Cache přidáním unikátního timestampu - zaručí čerstvá data!
+            const cb = '?t=' + Date.now();
+            
+            const { data: cUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/colors.json`);
+            try { 
+                const r = await fetch(cUrl.publicUrl + cb, { cache: "no-store" }); 
+                if(r.ok) modelColors = await r.json(); 
+            } catch(e){}
+
+            const { data: aUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/annotations.json`);
+            try { 
+                const r = await fetch(aUrl.publicUrl + cb, { cache: "no-store" }); 
+                if(r.ok) {
+                    const list = await r.json();
+                    for (const a of list) {
+                        if (a.type === 'paint') {
+                            const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z));
+                            const grp = new THREE.Group();
+                            pts.forEach(p => addSphereToGroup(grp, p, a.color));
+                            annotationsGroup.add(grp);
+                            const annot = { ...a, visible: true, meshGroup: grp };
+                            annotations.push(annot); renderAnnotationUI(annot);
+                        } else if (a.type === 'measure') {
+                            const p1 = new THREE.Vector3(a.data.p1.x, a.data.p1.y, a.data.p1.z);
+                            const p2 = new THREE.Vector3(a.data.p2.x, a.data.p2.y, a.data.p2.z);
+                            const grp = new THREE.Group();
+                            addSphereToGroup(grp, p1, a.color); addSphereToGroup(grp, p2, a.color);
+                            grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: a.color })));
+                            annotationsGroup.add(grp);
+                            const div = document.createElement('div'); div.className = 'measure-label'; div.innerText = a.text;
+                            document.getElementById('labels-container').appendChild(div);
+                            const annot = { ...a, visible: true, meshGroup: grp, htmlElement: div, data: {p1, p2, dist: a.data.dist} };
+                            annotations.push(annot); renderAnnotationUI(annot);
+                        }
                     }
                 }
-            }
+            } catch(e){}
         }
 
         async function fetchModels(targetId) {
@@ -425,32 +461,44 @@
             }
             
             document.getElementById('loader-overlay').style.display = 'flex';
-            const { data } = await supabase.storage.from('models').list(`shared/${id}`);
-            const cols = [0xcccccc, 0x999999, 0xaaaaaa, 0xbbbbbb];
             
+            // Vyčištění plochy, aby se při dalším uploadu nestackovaly anotace a modely
             document.getElementById('model-list').innerHTML = ""; 
-            modelsGroup.clear(); annotationsGroup.clear(); annotations = []; document.getElementById('comment-list').innerHTML = "<em>Zatím žádná data.</em>";
+            modelsGroup.clear(); annotationsGroup.clear(); annotations = []; 
+            document.getElementById('comment-list').innerHTML = "<em>Zatím žádná data.</em>";
             document.getElementById('labels-container').innerHTML = '';
 
+            await loadAnnotationsAndColors(id);
+
+            const { data } = await supabase.storage.from('models').list(`shared/${id}`);
+            const defaultCols = ['#cccccc', '#005a3b', '#1a1a1a', '#bbbbbb'];
+            
             const loadPromises = (data || []).map(async (f, ci) => {
                 if(f.name.startsWith('.') || f.name.endsWith('.json')) return;
                 const { data: pu } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${f.name}`);
-                return renderModel(pu.publicUrl, f.name, cols[ci % cols.length], !!targetId);
+                
+                const finalCol = modelColors[f.name] || defaultCols[ci % defaultCols.length];
+                return renderModel(pu.publicUrl, f.name, finalCol, !!targetId);
             });
 
             await Promise.all(loadPromises);
             
             const b = new THREE.Box3().setFromObject(modelsGroup); 
-            controls.target.copy(b.getCenter(new THREE.Vector3())); controls.update();
-            
-            const size = b.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z) / 2 + 50;
-            ['clip-x','clip-y','clip-z'].forEach(id => { 
-                const el = document.getElementById(id); el.max = maxDim; el.min = -maxDim; el.value = maxDim; 
-            });
-            clipX.constant = maxDim; clipY.constant = maxDim; clipZ.constant = maxDim;
+            if (!b.isEmpty()) {
+                controls.target.copy(b.getCenter(new THREE.Vector3())); controls.update();
+                
+                const pad = 2; 
+                const xMax = b.max.x + pad, xMin = b.min.x - pad;
+                const yMax = b.max.y + pad, yMin = b.min.y - pad;
+                const zMax = b.max.z + pad, zMin = b.min.z - pad;
 
-            await loadAnnotations(id);
+                const sx = document.getElementById('clip-x'); sx.max = xMax; sx.min = xMin; sx.value = xMax;
+                const sy = document.getElementById('clip-y'); sy.max = yMax; sy.min = yMin; sy.value = yMax;
+                const sz = document.getElementById('clip-z'); sz.max = zMax; sz.min = zMin; sz.value = zMax;
+                
+                updateClipping();
+            }
+
             document.getElementById('loader-overlay').style.display = 'none';
         }
 
@@ -464,17 +512,20 @@
                     if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
                     modelsGroup.add(model);
                     
-                    const d = document.createElement('div'); d.className = 'item-row'; const cs = '#' + new THREE.Color(col).getHexString();
-                    d.style.borderLeftColor = cs;
+                    const d = document.createElement('div'); d.className = 'item-row'; 
+                    d.style.borderLeftColor = col;
                     const disp = name.replace(/\.(stl|obj)$/i, '');
                     
-                    d.innerHTML = `<div class="item-top"><div class="item-left"><input type="color" class="color-picker-btn" value="${cs}" title="Změnit barvu"><input type="checkbox" checked title="Zobrazit/Skrýt"><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
+                    d.innerHTML = `<div class="item-top"><div class="item-left"><input type="color" class="color-picker-btn" value="${col}" title="Změnit barvu"><input type="checkbox" checked title="Zobrazit/Skrýt"><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
                     
-                    d.querySelector('.color-picker-btn').addEventListener('input', (e) => {
+                    d.querySelector('.color-picker-btn').addEventListener('change', (e) => {
                         const newCol = e.target.value;
                         d.style.borderLeftColor = newCol;
                         if (isSTL) model.material.color.set(newCol); 
                         else model.traverse(c => { if(c.isMesh) c.material.color.set(newCol); });
+                        
+                        modelColors[name] = newCol;
+                        saveColors();
                     });
 
                     d.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
@@ -620,7 +671,8 @@
         }
         
         if(currentSessionId && window.location.search.includes('id=')) fetchModels();
-        anim();
+        else anim();
+        
         window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
     </script>
 </body>
