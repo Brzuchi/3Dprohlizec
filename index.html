@@ -7,6 +7,12 @@
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
         
+        /* Hezký tenký scrollbar pro rolovací seznamy */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #007bff; }
+
         #ui-container { 
             position: absolute; top: 20px; left: 20px; 
             background: rgba(30, 30, 30, 0.9); border-radius: 10px; 
@@ -25,15 +31,19 @@
         .header-bar h2 { margin: 0; font-size: 1em; pointer-events: none; }
         .header-bar span { transition: transform 0.2s; }
         
+        /* Změna flexboxu, aby sekce respektovaly svůj obsah */
         .ui-section-content { 
             padding: 0 20px 15px 20px; 
-            overflow-y: auto; 
             display: flex; flex-direction: column;
             border-bottom: 1px solid #333; 
-            flex: 1 1 auto; 
-            min-height: 0; 
+            flex-shrink: 0; /* Důležité: nedovolí nechtěné smrsknutí */
         }
-        .ui-section-content.collapsed { display: none; flex: 0 0 0; } 
+        .ui-section-content.collapsed { display: none; } 
+
+        #ui-comments { flex: 1 1 auto; overflow-y: auto; border-bottom: none; min-height: 80px; }
+        
+        /* Omezení seznamu modelů zhruba na 3 segmenty */
+        #model-list { max-height: 255px; overflow-y: auto; padding-right: 5px; margin-bottom: 5px; }
 
         .upload-btn { background: #28a745; color: white; padding: 10px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; margin-top: 15px; margin-bottom: 10px; flex: 0 0 auto; }
         input[type="file"] { display: none; }
@@ -117,6 +127,7 @@
                 <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
                 <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
             </div>
+            <!-- Zde se bude rolovat seznam modelů, pokud jich bude víc jak 3 -->
             <div id="model-list"></div>
         </div>
 
@@ -143,7 +154,7 @@
         <div class="header-bar" onclick="toggleSection('ui-comments', 'icon-comments')">
             <h2>💬 Značky a měření</h2><span id="icon-comments">▼</span>
         </div>
-        <div id="ui-comments" class="ui-section-content" style="border-bottom: none;">
+        <div id="ui-comments" class="ui-section-content">
             <div id="comment-list" style="margin-top: 10px; margin-bottom: 20px;"><em>Zatím žádná data. Použijte nástroje nahoře.</em></div>
         </div>
     </div>
@@ -162,24 +173,22 @@
         const supabase = createClient('https://aukjrwkjvuhmbfqqgoav.supabase.co', 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3');
         let cubeSize = window.innerWidth <= 768 ? 80 : 130;
         
-        // ZJIŠTĚNÍ ROLE: Tvůrce vs Koncový uživatel
         const urlParams = new URLSearchParams(window.location.search);
         let currentSessionId = urlParams.get('id');
-        let isCreator = !currentSessionId; // Pokud otevřeš link bez ID, jsi tvůrce
+        let isCreator = !currentSessionId;
         
         let currentTool = 'view';
         let isInteracting = false;
         
         let annotations = [];
         let modelColors = {}; 
-        let activeStrokeColor = 0xffff00; 
+        let activeStrokeColor = 0x00ff00; 
 
         let currentStroke = [];
         let tempPaintGroup = null;
         let measureStartPoint = null;
         let tempMeasureLine = null;
 
-        // Skrýt upload funkce pro koncové uživatele hned na startu
         if (!isCreator) {
             document.getElementById('upload-label').style.display = 'none';
         }
@@ -210,11 +219,13 @@
         ['clip-x', 'clip-y', 'clip-z'].forEach(id => document.getElementById(id).addEventListener('input', updateClipping));
         ['clip-x-toggle', 'clip-y-toggle', 'clip-z-toggle'].forEach(id => document.getElementById(id).addEventListener('change', updateClipping));
 
+        // Změna kontrastu na mnohem viditelnější varianty
         function getContrastColor(hitObject) {
-            if (!hitObject || !hitObject.material || !hitObject.material.color) return 0xffff00;
+            if (!hitObject || !hitObject.material || !hitObject.material.color) return 0x00ff00; // Neon Green default
             const c = hitObject.material.color;
             const luminance = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b);
-            return luminance > 0.5 ? 0x0000ff : 0xffff00; 
+            // Nad 0.4 (světlý model) -> Magenta. Pod 0.4 (tmavý model) -> Neon Green
+            return luminance > 0.4 ? 0xff00ff : 0x00ff00; 
         }
 
         window.toggleSection = (id, iconId) => {
@@ -478,7 +489,6 @@
         async function fetchModels() {
             const id = currentSessionId; if (!id) return;
             
-            // POKUD JE TO TVŮRCE, ZOBRAZÍ SE SDÍLECÍ LINK A TLAČÍTKA. DIVÁKOVI NE.
             if (isCreator) { 
                 document.getElementById('reset-btn').style.display = 'block'; 
                 document.getElementById('delete-all-btn').style.display = 'block'; 
@@ -503,7 +513,6 @@
                 let fc = modelColors[f.name]; if (!fc) { fc = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'); modelColors[f.name] = fc; colorsChanged = true; }
                 const d = document.createElement('div'); d.className = 'item-row'; d.style.borderLeftColor = fc; d.innerHTML = `<div style="font-size:0.8em; color:#aaa;">Načítám ${f.name}...</div>`; document.getElementById('model-list').appendChild(d);
                 
-                // IS_CREATOR řídí, zda se u modelu objeví ikonka koše
                 return renderModel(pu.publicUrl, f.name, fc, isCreator, d);
             });
             await Promise.all(loadPromises);
@@ -573,7 +582,7 @@
                 } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f, { upsert: true });
             }
             window.history.replaceState({}, '', `${window.location.pathname}?id=${currentSessionId}`); 
-            isCreator = true; // Pojistka po úspěšném nahrání
+            isCreator = true; 
             await fetchModels();
         }
         
