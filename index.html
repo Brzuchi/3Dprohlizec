@@ -118,7 +118,6 @@
             }
         };
 
-        // --- OPTIMALIZOVANÝ FETCH ---
         async function fetchModels(targetId) {
             const id = targetId || currentSessionId; if (!id) return;
             if (!targetId) document.getElementById('upload-box').style.display = 'none';
@@ -134,7 +133,6 @@
             annotationMeshes = []; 
             document.getElementById('comment-list').innerHTML = "";
 
-            // PARALELNÍ NAČÍTÁNÍ
             const loadPromises = (data || []).map(async (f, ci) => {
                 if(f.name.startsWith('.') || f.name.endsWith('.json')) return;
                 const { data: pu } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${f.name}`);
@@ -151,32 +149,44 @@
         }
 
         async function renderModel(url, name, col, isU) {
-            const l = name.toLowerCase().endsWith('.obj') ? new OBJLoader() : new STLLoader();
-            return new Promise((res, rej) => {
+            const isSTL = name.toLowerCase().endsWith('.stl');
+            const l = isSTL ? new STLLoader() : new OBJLoader();
+            
+            return new Promise((res) => {
                 l.load(url, (r) => {
                     const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide, transparent: true, opacity: 1 });
-                    let mesh = r.isMesh ? r : r.children[0];
-                    if(!r.isMesh) r.traverse(c => { if(c.isMesh) c.material = m; }); else mesh.material = m;
-                    modelsGroup.add(r.isMesh ? mesh : r);
+                    
+                    let model;
+                    if (isSTL) {
+                        // STL vrací přímo BufferGeometry
+                        model = new THREE.Mesh(r, m);
+                    } else {
+                        // OBJ vrací Group
+                        r.traverse(c => { if (c.isMesh) c.material = m; });
+                        model = r;
+                    }
+                    
+                    modelsGroup.add(model);
                     
                     const d = document.createElement('div'); d.className = 'model-item'; const cs = '#' + new THREE.Color(col).getHexString();
                     d.style.borderLeftColor = cs;
                     const disp = name.replace(/\.(stl|obj)$/i, '');
                     d.innerHTML = `<div class="model-item-top"><div class="model-item-left"><input type="checkbox" checked><label style="color:${cs}">${disp}</label></div>${isU ? '<span class="del-file-btn">×</span>' : ""}</div><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div>`;
-                    d.querySelector('input[type="checkbox"]').onchange = (e) => { (r.isMesh ? mesh : r).visible = e.target.checked; };
+                    d.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
                     d.querySelector('.opacity-slider').oninput = (e) => {
                         const val = parseFloat(e.target.value);
-                        if(r.isMesh) r.material.opacity = val; else r.traverse(c => { if(c.isMesh) c.material.opacity = val; });
+                        if (isSTL) model.material.opacity = val;
+                        else model.traverse(c => { if(c.isMesh) c.material.opacity = val; });
                     };
                     if(isU) d.querySelector('.del-file-btn').onclick = async () => {
-                        if(confirm(`Smazat ${disp}?`)) { await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); modelsGroup.remove(r.isMesh ? mesh : r); d.remove(); }
+                        if(confirm(`Smazat ${disp}?`)) { await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); modelsGroup.remove(model); d.remove(); }
                     };
                     document.getElementById('model-list').appendChild(d); res();
                 }, undefined, (err) => { console.error(err); res(); });
             });
         }
 
-        // --- ZBYTEK KOMENTÁŘE A KOSTKA ---
+        // --- KOMENTÁŘE A KOSTKA ---
         const btnAddComment = document.getElementById('add-comment-toggle');
         btnAddComment.onclick = () => {
             isAddingComment = !isAddingComment;
@@ -250,7 +260,6 @@
             }
         }
 
-        // --- ViewCube ---
         const cubeCont = document.getElementById('viewcube-container');
         const cubeScene = new THREE.Scene();
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
