@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D prohlížeč 💾</title>
+    <title>💾3D prohlížeč </title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
         #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 300px; max-width: 380px; z-index: 10; border: 1px solid #444; display: flex; flex-direction: column; max-height: 90vh; }
@@ -22,7 +22,6 @@
         .upload-btn { background: #28a745; color: white; padding: 10px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; margin-bottom: 10px;}
         input[type="file"] { display: none; }
         
-        /* Vrácené sdílení */
         #link-container { display: none; margin-bottom: 15px; padding: 10px; background: rgba(0, 123, 255, 0.1); border: 1px solid #007bff; border-radius: 5px; }
         .link-row { display: flex; gap: 8px; margin-top: 5px; align-items: center; }
         .generated-link { flex: 1; color: #00a2ff; word-break: break-all; font-size: 0.8em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; }
@@ -47,6 +46,7 @@
         .icon-btn:hover { opacity: 1; }
         .del-btn { color: #dc3545; }
         .edit-btn { color: #ffc107; }
+        .export-btn { color: #0dcaf0; }
 
         .slider-group { margin-top: 8px; }
         .slider-group input { width: 100%; height: 3px; accent-color: #007bff; cursor: pointer; }
@@ -60,7 +60,6 @@
         #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Drag & Drop overlay */
         #drop-zone { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 123, 255, 0.2); border: 4px dashed #007bff; box-sizing: border-box; z-index: 999; justify-content: center; align-items: center; flex-direction: column; color: #007bff; font-size: 2em; font-weight: bold; pointer-events: none; }
 
         .measure-label { position: absolute; background: rgba(0,0,0,0.7); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 12px; pointer-events: none; border: 1px solid #00ff00; transform: translate(-50%, -50%); z-index: 5; }
@@ -70,7 +69,7 @@
 </head>
 <body>
     <div id="loader-overlay"><div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite;"></div></div>
-    <div id="drop-zone">📂 Nahrát modely</div>
+    <div id="drop-zone">📂 Upusťte modely sem</div>
     <div id="labels-container"></div>
 
     <div id="ui-container">
@@ -81,7 +80,7 @@
         </div>
 
         <div class="header-bar" onclick="toggleSection('ui-models', 'icon-models')">
-            <h2>⚙️ Modely a roviny</h2><span id="icon-models">▼</span>
+            <h2>⚙️ Modely a ořezy</h2><span id="icon-models">▼</span>
         </div>
         <div id="ui-models" class="ui-section-content">
             <label class="upload-btn" id="upload-label">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
@@ -95,15 +94,15 @@
             </div>
 
             <div class="btn-group">
-                <button id="reset-btn" class="reset-btn" style="display: none;">Nová sada</button>
+                <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
                 <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
             </div>
             
             <div class="clipping-section">
-                <h3>Prohlížecí roviny</h3>
-                <div class="slider-group"><input type="range" id="clip-x" min="-300" max="300" value="300" step="1"><div class="slider-label">SAG</div></div>
-                <div class="slider-group"><input type="range" id="clip-y" min="-300" max="300" value="300" step="1"><div class="slider-label">AX</div></div>
-                <div class="slider-group"><input type="range" id="clip-z" min="-300" max="300" value="300" step="1"><div class="slider-label">COR</div></div>
+                <h3>Řezné roviny</h3>
+                <div class="slider-group"><input type="range" id="clip-x" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez X (Sagitální)</div></div>
+                <div class="slider-group"><input type="range" id="clip-y" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez Y (Axiální)</div></div>
+                <div class="slider-group"><input type="range" id="clip-z" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez Z (Koronární)</div></div>
             </div>
 
             <div id="model-list"></div>
@@ -125,6 +124,7 @@
         import { STLLoader } from 'three/addons/loaders/STLLoader.js';
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { STLExporter } from 'three/addons/exporters/STLExporter.js'; // PŘIDÁNO: Knihovna pro export
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
         const supabase = createClient('https://aukjrwkjvuhmbfqqgoav.supabase.co', 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3');
@@ -267,9 +267,10 @@
             }
         });
 
+        // ÚPRAVA: Menší poloměr (0.6) a méně segmentů koulí pro menší datovou náročnost a přesnější linku
         function addSphereToGroup(group, pos, color) {
             const m = new THREE.MeshBasicMaterial({ color: color });
-            const s = new THREE.Mesh(new THREE.SphereGeometry(2, 16, 16), m);
+            const s = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 12), m);
             s.position.copy(pos);
             group.add(s);
         }
@@ -312,6 +313,7 @@
             div.className = 'item-row';
             div.style.borderLeftColor = '#' + new THREE.Color(annot.color).getHexString();
             
+            // ÚPRAVA UI: Přidána ikona diskety pro uložení STL pro nástroj paint
             div.innerHTML = `
                 <div class="item-top">
                     <div class="item-left">
@@ -319,6 +321,7 @@
                         <label title="${annot.text}">${annot.type === 'paint' ? '🖌️ ' : ''}${annot.text}</label>
                     </div>
                     <div class="item-actions">
+                        ${annot.type === 'paint' ? '<span class="icon-btn export-btn" title="Exportovat jako STL">💾</span>' : ''}
                         <span class="icon-btn edit-btn" title="Upravit text">✏️</span>
                         <span class="icon-btn del-btn" title="Smazat">🗑️</span>
                     </div>
@@ -330,6 +333,23 @@
                 annot.meshGroup.visible = annot.visible;
                 if(annot.htmlElement) annot.htmlElement.style.display = annot.visible ? 'block' : 'none';
             };
+
+            // LOGIKA EXPORTU DO STL POUZE PRO NÁKRESY
+            if (annot.type === 'paint') {
+                div.querySelector('.export-btn').onclick = (e) => {
+                    e.stopPropagation();
+                    const exporter = new STLExporter();
+                    const stlString = exporter.parse(annot.meshGroup);
+                    const blob = new Blob([stlString], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    // Jméno stahovaného souboru dle popisku
+                    a.download = `nakres_${annot.text.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'export'}.stl`; 
+                    a.click();
+                    URL.revokeObjectURL(url);
+                };
+            }
 
             div.querySelector('.edit-btn').onclick = async (e) => {
                 const newText = prompt("Upravit text:", annot.text);
@@ -505,7 +525,6 @@
             }
         });
 
-        // --- DRAG & DROP A UPLOAD LOGIKA ---
         async function handleUpload(files) {
             if(!currentSessionId) currentSessionId = Math.random().toString(36).substring(2, 10);
             document.getElementById('loader-overlay').style.display = 'flex';
@@ -527,7 +546,6 @@
 
         document.getElementById('file-input').onchange = (e) => handleUpload(e.target.files);
 
-        // Drag & Drop eventy
         const dropZone = document.getElementById('drop-zone');
         let dragCounter = 0;
 
@@ -554,7 +572,6 @@
             }
         });
 
-        // Tlačítko pro kopírování
         document.getElementById('copy-link-btn').onclick = () => {
             navigator.clipboard.writeText(document.getElementById('share-link').innerText).then(() => {
                 const btn = document.getElementById('copy-link-btn');
