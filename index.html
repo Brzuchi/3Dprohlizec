@@ -56,6 +56,10 @@
         .clip-row { display: flex; align-items: center; margin-bottom: 2px; }
         .clip-row input[type="checkbox"] { margin-right: 8px; cursor: pointer; }
         .clip-label { font-size: 0.7em; color: #ccc; text-transform: uppercase; user-select: none; cursor: pointer; }
+        
+        /* Nové tlačítko CUT */
+        .cut-btn { background: #dc3545; color: white; border: none; border-radius: 3px; font-size: 0.65em; padding: 3px 8px; margin-left: auto; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .cut-btn:hover { background: #c82333; }
 
         #viewcube-container { position: absolute; top: 20px; right: 20px; width: 130px; height: 130px; z-index: 20; }
         #viewer { width: 100vw; height: 100vh; display: block; }
@@ -103,15 +107,24 @@
             <div class="clipping-section">
                 <h3>Řezné roviny</h3>
                 <div class="slider-group">
-                    <div class="clip-row"><input type="checkbox" id="clip-x-toggle"><label class="clip-label" for="clip-x-toggle">SAG</label></div>
+                    <div class="clip-row">
+                        <input type="checkbox" id="clip-x-toggle"><label class="clip-label" for="clip-x-toggle">SAG</label>
+                        <button class="cut-btn" id="cut-x" title="Udělat řez">CUT</button>
+                    </div>
                     <input type="range" id="clip-x" step="0.5">
                 </div>
                 <div class="slider-group">
-                    <div class="clip-row"><input type="checkbox" id="clip-y-toggle"><label class="clip-label" for="clip-y-toggle">AX</label></div>
+                    <div class="clip-row">
+                        <input type="checkbox" id="clip-y-toggle"><label class="clip-label" for="clip-y-toggle">TRA</label>
+                        <button class="cut-btn" id="cut-y" title="Udělat řez">CUT</button>
+                    </div>
                     <input type="range" id="clip-y" step="0.5">
                 </div>
                 <div class="slider-group">
-                    <div class="clip-row"><input type="checkbox" id="clip-z-toggle"><label class="clip-label" for="clip-z-toggle">COR</label></div>
+                    <div class="clip-row">
+                        <input type="checkbox" id="clip-z-toggle"><label class="clip-label" for="clip-z-toggle">COR</label>
+                        <button class="cut-btn" id="cut-z" title="Udělat řez">CUT</button>
+                    </div>
                     <input type="range" id="clip-z" step="0.5">
                 </div>
             </div>
@@ -179,6 +192,120 @@
 
         ['clip-x', 'clip-y', 'clip-z'].forEach(id => document.getElementById(id).addEventListener('input', updateClipping));
         ['clip-x-toggle', 'clip-y-toggle', 'clip-z-toggle'].forEach(id => document.getElementById(id).addEventListener('change', updateClipping));
+
+        // --- MATEMATIKA A GENEROVÁNÍ ŘEZŮ ---
+        function createContourMesh(segments, color, planeNormal) {
+            const thickness = 0.8; // Tloušťka exportované linky řezu
+            const geom = new THREE.BufferGeometry();
+            const vertices = [];
+            const indices = [];
+            let vIdx = 0;
+
+            for(let i=0; i<segments.length; i+=2) {
+                const p1 = segments[i];
+                const p2 = segments[i+1];
+                const dir = new THREE.Vector3().subVectors(p2, p1);
+                
+                let up = new THREE.Vector3().crossVectors(dir, planeNormal).normalize().multiplyScalar(thickness/2);
+                if (up.lengthSq() < 0.0001) {
+                    const fallback = new THREE.Vector3(1,0,0);
+                    if (Math.abs(planeNormal.x) > 0.9) fallback.set(0,1,0);
+                    up.crossVectors(dir, fallback).normalize().multiplyScalar(thickness/2);
+                }
+
+                vertices.push(
+                    p1.x - up.x, p1.y - up.y, p1.z - up.z,
+                    p1.x + up.x, p1.y + up.y, p1.z + up.z,
+                    p2.x - up.x, p2.y - up.y, p2.z - up.z,
+                    p2.x + up.x, p2.y + up.y, p2.z + up.z
+                );
+
+                indices.push(
+                    vIdx, vIdx+1, vIdx+2,
+                    vIdx+1, vIdx+3, vIdx+2,
+                    vIdx, vIdx+2, vIdx+1,
+                    vIdx+1, vIdx+2, vIdx+3
+                );
+                vIdx += 4;
+            }
+
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geom.setIndex(indices);
+            geom.computeVertexNormals();
+
+            const mat = new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide });
+            return new THREE.Mesh(geom, mat);
+        }
+
+        function performCut(planeType, planeNormal, planeConstant) {
+            const plane = new THREE.Plane(planeNormal, planeConstant);
+            let segments = [];
+            
+            modelsGroup.children.forEach(model => {
+                if(!model.visible) return; 
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        const geom = child.geometry;
+                        if (!geom.attributes.position) return;
+                        const pos = geom.attributes.position;
+                        const matrix = child.matrixWorld;
+
+                        for (let i = 0; i < pos.count; i += 3) {
+                            const v1 = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(matrix);
+                            const v2 = new THREE.Vector3().fromBufferAttribute(pos, i+1).applyMatrix4(matrix);
+                            const v3 = new THREE.Vector3().fromBufferAttribute(pos, i+2).applyMatrix4(matrix);
+
+                            const d1 = plane.distanceToPoint(v1);
+                            const d2 = plane.distanceToPoint(v2);
+                            const d3 = plane.distanceToPoint(v3);
+
+                            if ((d1 > 0 && d2 > 0 && d3 > 0) || (d1 < 0 && d2 < 0 && d3 < 0)) continue;
+
+                            const pts = [];
+                            if (d1 * d2 <= 0 && d1 !== d2) pts.push(v1.clone().lerp(v2, Math.abs(d1) / (Math.abs(d1) + Math.abs(d2))));
+                            if (d2 * d3 <= 0 && d2 !== d3) pts.push(v2.clone().lerp(v3, Math.abs(d2) / (Math.abs(d2) + Math.abs(d3))));
+                            if (d3 * d1 <= 0 && d3 !== d1) pts.push(v3.clone().lerp(v1, Math.abs(d3) / (Math.abs(d3) + Math.abs(d1))));
+
+                            if (pts.length >= 2) segments.push(pts[0], pts[1]);
+                        }
+                    }
+                });
+            });
+
+            if (segments.length === 0) { alert("Řezná rovina neprotíná žádný viditelný model."); return; }
+
+            const color = commentColors[annotations.length % commentColors.length];
+            const meshGroup = new THREE.Group();
+            
+            const cutMesh = createContourMesh(segments, color, planeNormal);
+            meshGroup.add(cutMesh);
+            annotationsGroup.add(meshGroup);
+
+            const text = `Řez ${planeType}`;
+            const annot = { 
+                id: Date.now(), type: 'cut', 
+                data: segments.map(p => ({x: p.x, y: p.y, z: p.z})), 
+                planeNormal: {x: planeNormal.x, y: planeNormal.y, z: planeNormal.z},
+                text, color, visible: true, meshGroup 
+            };
+            
+            annotations.push(annot);
+            renderAnnotationUI(annot);
+            saveAnnotations();
+        }
+
+        document.getElementById('cut-x').onclick = () => {
+            if(!document.getElementById('clip-x-toggle').checked) { alert("Nejprve zapněte rovinu SAG."); return; }
+            performCut('SAG', new THREE.Vector3(-1, 0, 0), parseFloat(document.getElementById('clip-x').value));
+        };
+        document.getElementById('cut-y').onclick = () => {
+            if(!document.getElementById('clip-y-toggle').checked) { alert("Nejprve zapněte rovinu TRA."); return; }
+            performCut('TRA', new THREE.Vector3(0, -1, 0), parseFloat(document.getElementById('clip-y').value));
+        };
+        document.getElementById('cut-z').onclick = () => {
+            if(!document.getElementById('clip-z-toggle').checked) { alert("Nejprve zapněte rovinu COR."); return; }
+            performCut('COR', new THREE.Vector3(0, 0, -1), parseFloat(document.getElementById('clip-z').value));
+        };
 
         window.toggleSection = (id, iconId) => {
             const el = document.getElementById(id); const icon = document.getElementById(iconId);
@@ -329,16 +456,21 @@
             div.className = 'item-row';
             div.style.borderLeftColor = '#' + new THREE.Color(annot.color).getHexString();
             
+            // Přidána ikona pro výpis podle typu (řézy dostanou ✂️)
+            let iconText = '';
+            if (annot.type === 'paint') iconText = '🖌️ ';
+            if (annot.type === 'cut') iconText = '✂️ ';
+
             div.innerHTML = `
                 <div class="item-top">
                     <div class="item-left">
                         <input type="checkbox" checked title="Zobrazit/Skrýt">
-                        <label title="${annot.text}">${annot.type === 'paint' ? '🖌️ ' : ''}${annot.text}</label>
+                        <label title="${annot.text}">${iconText}${annot.text}</label>
                     </div>
                     <div class="item-actions">
-                        ${annot.type === 'paint' ? '<span class="icon-btn export-btn" title="Exportovat jako STL">💾</span>' : ''}
+                        ${(annot.type === 'paint' || annot.type === 'cut') ? '<span class="icon-btn export-btn" title="Exportovat jako STL">💾</span>' : ''}
                         <span class="icon-btn edit-btn" title="Upravit text">✏️</span>
-                        <span class="icon-btn del-btn" title="Smazat">❌️</span>
+                        <span class="icon-btn del-btn" title="Smazat">🗑️</span>
                     </div>
                 </div>
             `;
@@ -349,7 +481,7 @@
                 if(annot.htmlElement) annot.htmlElement.style.display = annot.visible ? 'block' : 'none';
             };
 
-            if (annot.type === 'paint') {
+            if (annot.type === 'paint' || annot.type === 'cut') {
                 div.querySelector('.export-btn').onclick = (e) => {
                     e.stopPropagation();
                     const exportGroup = new THREE.Group();
@@ -374,7 +506,7 @@
                 const newText = prompt("Upravit text:", annot.text);
                 if (newText) {
                     annot.text = newText;
-                    div.querySelector('label').innerText = annot.type === 'paint' ? `🖌️ ${newText}` : newText;
+                    div.querySelector('label').innerText = `${iconText}${newText}`;
                     if(annot.htmlElement) annot.htmlElement.innerText = newText;
                     await saveAnnotations();
                 }
@@ -395,14 +527,13 @@
 
         async function saveAnnotations() {
             if(!currentSessionId) return;
-            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, text: a.text, color: a.color }));
-            // Přidán parametr upsert pro bezpečný přepis souboru s anotacemi
+            // Výřez a uložení řezů (cut) i kreslení a měření. PlaneNormal se propíše, kde existuje.
+            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, planeNormal: a.planeNormal, text: a.text, color: a.color }));
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }), { upsert: true });
         }
 
         async function saveColors() {
             if(!currentSessionId) return;
-            // Přidán parametr upsert pro bezpečný přepis souboru s barvami
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/colors.json`, new Blob([JSON.stringify(modelColors)], { type: 'application/json' }), { upsert: true });
         }
 
@@ -425,6 +556,15 @@
                             const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z));
                             const grp = new THREE.Group();
                             pts.forEach(p => addSphereToGroup(grp, p, a.color));
+                            annotationsGroup.add(grp);
+                            const annot = { ...a, visible: true, meshGroup: grp };
+                            annotations.push(annot); renderAnnotationUI(annot);
+                        } else if (a.type === 'cut') {
+                            const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z));
+                            const normal = new THREE.Vector3(a.planeNormal.x, a.planeNormal.y, a.planeNormal.z);
+                            const grp = new THREE.Group();
+                            const cutMesh = createContourMesh(pts, a.color, normal);
+                            grp.add(cutMesh);
                             annotationsGroup.add(grp);
                             const annot = { ...a, visible: true, meshGroup: grp };
                             annotations.push(annot); renderAnnotationUI(annot);
@@ -532,17 +672,13 @@
                         const val = parseFloat(e.target.value);
                         if (isSTL) model.material.opacity = val; else model.traverse(c => { if(c.isMesh) c.material.opacity = val; });
                     };
-                    
-                    // KONTROLA BEZPEČNÉHO SMAZÁNÍ
                     if(isU) d.querySelector('.del-btn').onclick = async () => {
                         if(confirm(`Smazat ${disp}?`)) { 
                             const { error } = await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]);
                             if (error) {
-                                alert("Chyba: Databáze odmítla soubor smazat. Zkontrolujte prosím pravidlo DELETE v Supabase (Policies).");
-                                console.error(error);
+                                alert("Chyba při mazání. Zkontrolujte pravidlo DELETE v Supabase (Policies).");
                             } else {
-                                modelsGroup.remove(model); 
-                                d.remove(); 
+                                modelsGroup.remove(model); d.remove(); 
                             }
                         }
                     };
@@ -586,7 +722,6 @@
             }
         });
 
-        // Přidán parametr upsert pro bezproblémové přepisování při nahrávání
         async function handleUpload(files) {
             if(!currentSessionId) currentSessionId = Math.random().toString(36).substring(2, 10);
             document.getElementById('loader-overlay').style.display = 'flex';
