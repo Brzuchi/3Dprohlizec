@@ -8,7 +8,6 @@
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
         #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 300px; max-width: 380px; z-index: 10; border: 1px solid #444; display: flex; flex-direction: column; max-height: 90vh; }
         
-        /* Toolbar */
         .toolbar { display: flex; background: rgba(10, 10, 10, 0.8); border-radius: 10px 10px 0 0; padding: 10px; gap: 5px; border-bottom: 1px solid #444; }
         .tool-btn { flex: 1; padding: 8px 5px; background: #333; color: white; border: 1px solid #555; border-radius: 5px; cursor: pointer; font-size: 0.85em; font-weight: bold; transition: 0.2s; }
         .tool-btn:hover { background: #444; }
@@ -22,14 +21,25 @@
 
         .upload-btn { background: #28a745; color: white; padding: 10px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; margin-bottom: 10px;}
         input[type="file"] { display: none; }
+        
+        /* Vrácené sdílení */
+        #link-container { display: none; margin-bottom: 15px; padding: 10px; background: rgba(0, 123, 255, 0.1); border: 1px solid #007bff; border-radius: 5px; }
+        .link-row { display: flex; gap: 8px; margin-top: 5px; align-items: center; }
+        .generated-link { flex: 1; color: #00a2ff; word-break: break-all; font-size: 0.8em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; }
+        .copy-btn { background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 0.75em; }
+
         .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
         .reset-btn, .delete-all-btn { padding: 8px; border-radius: 5px; cursor: pointer; text-align: center; flex: 1; font-weight: 600; border: none; font-size: 0.85em; color: white; }
         .reset-btn { background: #6c757d; } .delete-all-btn { background: #dc3545; }
 
-        /* Položky seznamu */
         .item-row { margin-top: 10px; display: flex; flex-direction: column; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; border-left: 4px solid transparent; }
         .item-top { display: flex; justify-content: space-between; align-items: center; }
         .item-left { display: flex; align-items: center; overflow: hidden; flex: 1;}
+        
+        .color-picker-btn { -webkit-appearance: none; border: none; width: 16px; height: 16px; border-radius: 3px; cursor: pointer; padding: 0; margin-right: 10px; background: none; flex-shrink: 0; }
+        .color-picker-btn::-webkit-color-swatch-wrapper { padding: 0; }
+        .color-picker-btn::-webkit-color-swatch { border: 1px solid #555; border-radius: 3px; }
+
         .item-left input[type="checkbox"] { margin-right: 10px; cursor: pointer; }
         .item-left label { cursor: pointer; font-weight: 600; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .item-actions { display: flex; gap: 8px; }
@@ -42,7 +52,6 @@
         .slider-group input { width: 100%; height: 3px; accent-color: #007bff; cursor: pointer; }
         .slider-label { font-size: 0.65em; color: #888; text-transform: uppercase; margin-top: 2px;}
 
-        /* Řezné roviny */
         .clipping-section { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px dashed #555; }
         .clipping-section h3 { font-size: 0.85em; margin: 0 0 10px 0; color: #aaa; text-transform: uppercase; }
 
@@ -51,7 +60,9 @@
         #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Pllovoucí texty měření */
+        /* Drag & Drop overlay */
+        #drop-zone { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 123, 255, 0.2); border: 4px dashed #007bff; box-sizing: border-box; z-index: 999; justify-content: center; align-items: center; flex-direction: column; color: #007bff; font-size: 2em; font-weight: bold; pointer-events: none; }
+
         .measure-label { position: absolute; background: rgba(0,0,0,0.7); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 12px; pointer-events: none; border: 1px solid #00ff00; transform: translate(-50%, -50%); z-index: 5; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -59,11 +70,10 @@
 </head>
 <body>
     <div id="loader-overlay"><div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite;"></div></div>
-    
-    <div id="labels-container"></div> <!-- Kontejner pro 2D štítky měření -->
+    <div id="drop-zone">📂 Upusťte modely sem</div>
+    <div id="labels-container"></div>
 
     <div id="ui-container">
-        <!-- NÁSTROJE -->
         <div class="toolbar">
             <button id="tool-view" class="tool-btn active">🖐️ Prohlížet</button>
             <button id="tool-paint" class="tool-btn">🖌️ Malovat</button>
@@ -74,13 +84,21 @@
             <h2>⚙️ Modely a ořezy</h2><span id="icon-models">▼</span>
         </div>
         <div id="ui-models" class="ui-section-content">
-            <label class="upload-btn">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
+            <label class="upload-btn" id="upload-label">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
+            
+            <div id="link-container">
+                <div style="font-size: 0.8em; margin-bottom: 5px; color: #aaa;">Odkaz pro sdílení:</div>
+                <div class="link-row">
+                    <a id="share-link" class="generated-link" href="#" target="_blank"></a>
+                    <button id="copy-link-btn" class="copy-btn">Kopírovat</button>
+                </div>
+            </div>
+
             <div class="btn-group">
                 <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
                 <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
             </div>
             
-            <!-- Clipping Planes UI -->
             <div class="clipping-section">
                 <h3>Řezné roviny</h3>
                 <div class="slider-group"><input type="range" id="clip-x" min="-300" max="300" value="300" step="1"><div class="slider-label">Odřez X (Sagitální)</div></div>
@@ -113,34 +131,29 @@
         const cubeSize = 130;
         let currentSessionId = new URLSearchParams(window.location.search).get('id');
         
-        // Stavy aplikace
-        let currentTool = 'view'; // view, paint, measure
+        let currentTool = 'view';
         let isInteracting = false;
         
-        // Globální data
-        let annotations = []; // { id, type, data, text, color, visible, meshGroup, htmlElement }
+        let annotations = [];
         const commentColors = [0x005A3B, 0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x1A1A1A, 0xffa500];
         
-        // Měřící a malovací buffer
         let currentStroke = [];
         let tempPaintGroup = null;
         let measureStartPoint = null;
         let tempMeasureLine = null;
 
-        // THREE.js Setup
         const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1a1a);
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000); camera.position.set(200, 200, 200);
         const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.localClippingEnabled = true; // DŮLEŽITÉ PRO ŘEZNÉ ROVINY
+        renderer.localClippingEnabled = true;
         document.getElementById('viewer').appendChild(renderer.domElement);
         const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
         
         scene.add(new THREE.AmbientLight(0xffffff, 0.7));
         const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
-        const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup); // Nemá rotaci, koordináty jsou reálné k světu
+        const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
 
-        // Řezné roviny (Clipping Planes)
         const clipX = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 300);
         const clipY = new THREE.Plane(new THREE.Vector3(0, -1, 0), 300);
         const clipZ = new THREE.Plane(new THREE.Vector3(0, 0, -1), 300);
@@ -155,7 +168,6 @@
             if (el && icon) { el.classList.toggle('collapsed'); icon.style.transform = el.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)'; }
         };
 
-        // --- NÁSTROJE LOGIKA ---
         const raycaster = new THREE.Raycaster();
         const mouseVec = new THREE.Vector2();
 
@@ -164,20 +176,18 @@
                 document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentTool = btn.id.replace('tool-', '');
-                controls.enabled = (currentTool === 'view'); // Orbity fungují jen ve view
+                controls.enabled = (currentTool === 'view');
                 
-                // Úklid měření, pokud uživatel překlikne v průběhu
                 measureStartPoint = null;
                 if(tempMeasureLine) { scene.remove(tempMeasureLine); tempMeasureLine = null; }
             };
         });
 
-        // Události myši pro modely
         const viewerDiv = document.getElementById('viewer');
         
         viewerDiv.addEventListener('pointerdown', (e) => {
             if (currentTool === 'view') return;
-            if (e.button !== 0) return; // Jen levé tlačítko
+            if (e.button !== 0) return;
 
             mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -190,7 +200,7 @@
                     currentStroke = [hits[0].point.clone()];
                     tempPaintGroup = new THREE.Group();
                     annotationsGroup.add(tempPaintGroup);
-                    addSphereToGroup(tempPaintGroup, hits[0].point, 0xffffff); // Dočasná barva
+                    addSphereToGroup(tempPaintGroup, hits[0].point, 0xffffff);
                 } 
                 else if (currentTool === 'measure') {
                     if (!measureStartPoint) {
@@ -199,13 +209,16 @@
                         annotationsGroup.add(tempPaintGroup);
                         addSphereToGroup(tempPaintGroup, measureStartPoint, 0x00ff00);
                     } else {
-                        // Druhý klik - uložení měření
                         const p2 = hits[0].point.clone();
                         const dist = measureStartPoint.distanceTo(p2);
-                        finishMeasurement(measureStartPoint, p2, dist);
+                        const desc = prompt("Popis měření (nebo nechte prázdné pro pouhou vzdálenost):");
+                        
+                        finishMeasurement(measureStartPoint, p2, dist, desc);
                         measureStartPoint = null;
                         if(tempPaintGroup) { annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; }
                         if(tempMeasureLine) { scene.remove(tempMeasureLine); tempMeasureLine = null; }
+                        
+                        document.getElementById('tool-view').click();
                     }
                 }
             }
@@ -222,7 +235,6 @@
                 const hits = raycaster.intersectObject(modelsGroup, true);
                 if (hits.length > 0) {
                     const pt = hits[0].point.clone();
-                    // Zaznamenat jen pokud ujel dostatečnou vzdálenost (optimalizace sítě)
                     if (pt.distanceTo(currentStroke[currentStroke.length - 1]) > 2) {
                         currentStroke.push(pt);
                         addSphereToGroup(tempPaintGroup, pt, 0xffffff);
@@ -250,7 +262,6 @@
                         const color = commentColors[annotations.length % commentColors.length];
                         await finishPaintStroke(currentStroke, text, color);
                     }
-                    // Odstranit dočasnou kresbu
                     annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; currentStroke = [];
                 }
             }
@@ -274,7 +285,7 @@
             await saveAnnotations();
         }
 
-        async function finishMeasurement(p1, p2, dist) {
+        async function finishMeasurement(p1, p2, dist, desc) {
             const grp = new THREE.Group();
             addSphereToGroup(grp, p1, 0x00ff00);
             addSphereToGroup(grp, p2, 0x00ff00);
@@ -282,9 +293,8 @@
             grp.add(line);
             annotationsGroup.add(grp);
 
-            const text = `${dist.toFixed(2)} mm`;
+            const text = desc ? `${desc} (${dist.toFixed(2)} mm)` : `${dist.toFixed(2)} mm`;
             
-            // HTML štítek
             const div = document.createElement('div');
             div.className = 'measure-label'; div.innerText = text;
             document.getElementById('labels-container').appendChild(div);
@@ -295,7 +305,6 @@
             await saveAnnotations();
         }
 
-        // --- UI PRO ANOTACE ---
         function renderAnnotationUI(annot) {
             document.getElementById('comment-list').querySelector('em')?.remove();
             const list = document.getElementById('comment-list');
@@ -307,10 +316,10 @@
                 <div class="item-top">
                     <div class="item-left">
                         <input type="checkbox" checked title="Zobrazit/Skrýt">
-                        <label title="${annot.text}">${annot.type === 'measure' ? '📏' : '🖌️'} ${annot.text}</label>
+                        <label title="${annot.text}">${annot.type === 'paint' ? '🖌️ ' : ''}${annot.text}</label>
                     </div>
                     <div class="item-actions">
-                        ${annot.type === 'paint' ? '<span class="icon-btn edit-btn" title="Upravit text">✏️</span>' : ''}
+                        <span class="icon-btn edit-btn" title="Upravit text">✏️</span>
                         <span class="icon-btn del-btn" title="Smazat">🗑️</span>
                     </div>
                 </div>
@@ -322,16 +331,15 @@
                 if(annot.htmlElement) annot.htmlElement.style.display = annot.visible ? 'block' : 'none';
             };
 
-            if (annot.type === 'paint') {
-                div.querySelector('.edit-btn').onclick = async (e) => {
-                    const newText = prompt("Upravit text:", annot.text);
-                    if (newText) {
-                        annot.text = newText;
-                        div.querySelector('label').innerText = `🖌️ ${newText}`;
-                        await saveAnnotations();
-                    }
-                };
-            }
+            div.querySelector('.edit-btn').onclick = async (e) => {
+                const newText = prompt("Upravit text:", annot.text);
+                if (newText) {
+                    annot.text = newText;
+                    div.querySelector('label').innerText = annot.type === 'paint' ? `🖌️ ${newText}` : newText;
+                    if(annot.htmlElement) annot.htmlElement.innerText = newText;
+                    await saveAnnotations();
+                }
+            };
 
             div.querySelector('.del-btn').onclick = async () => {
                 if(confirm("Opravdu smazat?")) {
@@ -381,15 +389,24 @@
             }
         }
 
-        // --- NAČÍTÁNÍ MODELŮ ---
         async function fetchModels(targetId) {
             const id = targetId || currentSessionId; if (!id) return;
-            if (!targetId) document.querySelector('.upload-btn').style.display = 'none';
-            else { document.getElementById('reset-btn').style.display = 'block'; document.getElementById('delete-all-btn').style.display = 'block'; }
+            
+            if (!targetId) {
+                document.getElementById('upload-label').style.display = 'none';
+                document.getElementById('link-container').style.display = 'none';
+            } else { 
+                document.getElementById('reset-btn').style.display = 'block'; 
+                document.getElementById('delete-all-btn').style.display = 'block'; 
+                const u = `${window.location.origin}${window.location.pathname}?id=${id}`;
+                document.getElementById('share-link').href = u;
+                document.getElementById('share-link').innerText = u;
+                document.getElementById('link-container').style.display = 'block';
+            }
             
             document.getElementById('loader-overlay').style.display = 'flex';
             const { data } = await supabase.storage.from('models').list(`shared/${id}`);
-            const cols = [0xcccccc, 0x999999, 0xaaaaaa, 0xbbbbbb]; // Decentní barvy modelů pro kontrast s anotacemi
+            const cols = [0xcccccc, 0x999999, 0xaaaaaa, 0xbbbbbb];
             
             document.getElementById('model-list').innerHTML = ""; 
             modelsGroup.clear(); annotationsGroup.clear(); annotations = []; document.getElementById('comment-list').innerHTML = "<em>Zatím žádná data.</em>";
@@ -406,7 +423,6 @@
             const b = new THREE.Box3().setFromObject(modelsGroup); 
             controls.target.copy(b.getCenter(new THREE.Vector3())); controls.update();
             
-            // Nastavení limitů pro posuvníky ořezu podle velikosti scény
             const size = b.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z) / 2 + 50;
             ['clip-x','clip-y','clip-z'].forEach(id => { 
@@ -423,7 +439,6 @@
             const l = isSTL ? new STLLoader() : new OBJLoader();
             return new Promise((res) => {
                 l.load(url, (r) => {
-                    // MATERIÁL: clippingPlanes aktivují ořez
                     const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
                     let model;
                     if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
@@ -432,8 +447,16 @@
                     const d = document.createElement('div'); d.className = 'item-row'; const cs = '#' + new THREE.Color(col).getHexString();
                     d.style.borderLeftColor = cs;
                     const disp = name.replace(/\.(stl|obj)$/i, '');
-                    d.innerHTML = `<div class="item-top"><div class="item-left"><input type="checkbox" checked><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
                     
+                    d.innerHTML = `<div class="item-top"><div class="item-left"><input type="color" class="color-picker-btn" value="${cs}" title="Změnit barvu"><input type="checkbox" checked title="Zobrazit/Skrýt"><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
+                    
+                    d.querySelector('.color-picker-btn').addEventListener('input', (e) => {
+                        const newCol = e.target.value;
+                        d.style.borderLeftColor = newCol;
+                        if (isSTL) model.material.color.set(newCol); 
+                        else model.traverse(c => { if(c.isMesh) c.material.color.set(newCol); });
+                    });
+
                     d.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
                     d.querySelector('.opacity-slider').oninput = (e) => {
                         const val = parseFloat(e.target.value);
@@ -447,7 +470,6 @@
             });
         }
 
-        // --- VIEWCUBE A RENDER LOOP ---
         const cubeCont = document.getElementById('viewcube-container');
         const cubeScene = new THREE.Scene();
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
@@ -483,18 +505,66 @@
             }
         });
 
-        // Upload
-        document.getElementById('file-input').onchange = async (e) => {
+        // --- DRAG & DROP A UPLOAD LOGIKA ---
+        async function handleUpload(files) {
             if(!currentSessionId) currentSessionId = Math.random().toString(36).substring(2, 10);
             document.getElementById('loader-overlay').style.display = 'flex';
-            for (const f of e.target.files) {
+            for (const f of files) {
                 if (f.name.endsWith('.zip')) {
                     const z = await JSZip.loadAsync(f);
-                    for (const [p, en] of Object.entries(z.files)) { if (!en.dir && (p.endsWith('.stl') || p.endsWith('.obj'))) await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob")); }
-                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f);
+                    for (const [p, en] of Object.entries(z.files)) { 
+                        if (!en.dir && (p.endsWith('.stl') || p.endsWith('.obj'))) {
+                            await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob")); 
+                        }
+                    }
+                } else {
+                    await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f);
+                }
             }
             window.history.replaceState({}, '', `${window.location.pathname}?id=${currentSessionId}`);
             await fetchModels(currentSessionId);
+        }
+
+        document.getElementById('file-input').onchange = (e) => handleUpload(e.target.files);
+
+        // Drag & Drop eventy
+        const dropZone = document.getElementById('drop-zone');
+        let dragCounter = 0;
+
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            dropZone.style.display = 'flex';
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter === 0) dropZone.style.display = 'none';
+        });
+
+        window.addEventListener('dragover', (e) => { e.preventDefault(); });
+
+        window.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dragCounter = 0;
+            dropZone.style.display = 'none';
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                await handleUpload(e.dataTransfer.files);
+            }
+        });
+
+        // Tlačítko pro kopírování
+        document.getElementById('copy-link-btn').onclick = () => {
+            navigator.clipboard.writeText(document.getElementById('share-link').innerText).then(() => {
+                const btn = document.getElementById('copy-link-btn');
+                btn.innerText = "Hotovo!";
+                btn.style.background = "#28a745";
+                setTimeout(() => { 
+                    btn.innerText = "Kopírovat"; 
+                    btn.style.background = "#007bff"; 
+                }, 2000);
+            });
         };
 
         document.getElementById('delete-all-btn').onclick = async () => {
@@ -510,13 +580,11 @@
         function updateLabels() {
             annotations.forEach(a => {
                 if (a.type === 'measure' && a.visible && a.htmlElement) {
-                    // Střed čáry
                     const mid = new THREE.Vector3().addVectors(a.data.p1, a.data.p2).multiplyScalar(0.5);
                     const v = mid.clone().project(camera);
                     const x = (v.x * .5 + .5) * window.innerWidth;
                     const y = (v.y * -.5 + .5) * window.innerHeight;
                     
-                    // Skrytí štítku, pokud je bod za kamerou
                     if (v.z > 1) { a.htmlElement.style.display = 'none'; } 
                     else {
                         a.htmlElement.style.display = 'block';
