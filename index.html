@@ -61,6 +61,10 @@
         .cut-btn:hover { background: #c82333; }
 
         #viewcube-container { position: absolute; top: 20px; right: 20px; width: 130px; height: 130px; z-index: 20; }
+        @media (max-width: 768px) {
+            #viewcube-container { width: 80px; height: 80px; top: 15px; right: 15px; }
+        }
+
         #viewer { width: 100vw; height: 100vh; display: block; }
         #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -84,7 +88,6 @@
             <button id="tool-measure" class="tool-btn">📏 Změřit</button>
         </div>
 
-        <!-- Sekce 1: Modely -->
         <div class="header-bar" onclick="toggleSection('ui-models', 'icon-models')">
             <h2>⚙️ Modely</h2><span id="icon-models">▼</span>
         </div>
@@ -107,7 +110,6 @@
             <div id="model-list"></div>
         </div>
 
-        <!-- Sekce 2: Roviny -->
         <div class="header-bar" onclick="toggleSection('ui-planes', 'icon-planes')">
             <h2>📐 Roviny</h2><span id="icon-planes">▼</span>
         </div>
@@ -137,7 +139,6 @@
             </div>
         </div>
 
-        <!-- Sekce 3: Značky -->
         <div class="header-bar" onclick="toggleSection('ui-comments', 'icon-comments')">
             <h2>💬 Značky a měření</h2><span id="icon-comments">▼</span>
         </div>
@@ -158,7 +159,7 @@
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
         const supabase = createClient('https://aukjrwkjvuhmbfqqgoav.supabase.co', 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3');
-        const cubeSize = 130;
+        let cubeSize = window.innerWidth <= 768 ? 80 : 130;
         let currentSessionId = new URLSearchParams(window.location.search).get('id');
         
         let currentTool = 'view';
@@ -320,7 +321,6 @@
             }
         };
 
-        // ZMĚNA: Na menších displejích (mobily) se roletky načtou automaticky zasunuté
         if (window.innerWidth <= 768) {
             toggleSection('ui-models', 'icon-models');
             toggleSection('ui-planes', 'icon-planes');
@@ -623,17 +623,39 @@
             await loadAnnotationsAndColors(id);
 
             const { data } = await supabase.storage.from('models').list(`shared/${id}`);
-            const defaultCols = ['#cccccc', '#005a3b', '#1a1a1a', '#bbbbbb'];
             
-            const loadPromises = (data || []).map(async (f, ci) => {
-                if(f.name.startsWith('.') || f.name.endsWith('.json')) return;
+            // Abecední řazení (včetně inteligentního řazení čísel)
+            let validFiles = (data || []).filter(f => !f.name.startsWith('.') && !f.name.endsWith('.json'));
+            validFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+            let colorsChanged = false;
+
+            const loadPromises = validFiles.map(async (f) => {
                 const { data: pu } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${f.name}`);
                 
-                const finalCol = modelColors[f.name] || defaultCols[ci % defaultCols.length];
-                return renderModel(pu.publicUrl, f.name, finalCol, !!targetId);
+                // Přidělení náhodné barvy pro neznámé modely
+                let finalCol = modelColors[f.name];
+                if (!finalCol) {
+                    finalCol = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+                    modelColors[f.name] = finalCol;
+                    colorsChanged = true;
+                }
+                
+                // Synchronní vytvoření DOM elementu zajistí, že se nepřehází pořadí kvůli rozdílné rychlosti načítání 3D dat
+                const d = document.createElement('div');
+                d.className = 'item-row';
+                d.style.borderLeftColor = finalCol;
+                d.innerHTML = `<div style="font-size:0.8em; color:#aaa;">Načítám ${f.name}...</div>`;
+                document.getElementById('model-list').appendChild(d);
+
+                return renderModel(pu.publicUrl, f.name, finalCol, !!targetId, d);
             });
 
             await Promise.all(loadPromises);
+            
+            if (colorsChanged && validFiles.length > 0) {
+                saveColors();
+            }
             
             const b = new THREE.Box3().setFromObject(modelsGroup); 
             if (!b.isEmpty()) {
@@ -654,7 +676,7 @@
             document.getElementById('loader-overlay').style.display = 'none';
         }
 
-        async function renderModel(url, name, col, isU) {
+        async function renderModel(url, name, col, isU, containerDiv) {
             const isSTL = name.toLowerCase().endsWith('.stl');
             const l = isSTL ? new STLLoader() : new OBJLoader();
             return new Promise((res) => {
@@ -664,15 +686,13 @@
                     if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
                     modelsGroup.add(model);
                     
-                    const d = document.createElement('div'); d.className = 'item-row'; 
-                    d.style.borderLeftColor = col;
                     const disp = name.replace(/\.(stl|obj)$/i, '');
                     
-                    d.innerHTML = `<div class="item-top"><div class="item-left"><input type="color" class="color-picker-btn" value="${col}" title="Změnit barvu"><input type="checkbox" checked title="Zobrazit/Skrýt"><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
+                    containerDiv.innerHTML = `<div class="item-top"><div class="item-left"><input type="color" class="color-picker-btn" value="${col}" title="Změnit barvu"><input type="checkbox" checked title="Zobrazit/Skrýt"><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
                     
-                    d.querySelector('.color-picker-btn').addEventListener('change', (e) => {
+                    containerDiv.querySelector('.color-picker-btn').addEventListener('change', (e) => {
                         const newCol = e.target.value;
-                        d.style.borderLeftColor = newCol;
+                        containerDiv.style.borderLeftColor = newCol;
                         if (isSTL) model.material.color.set(newCol); 
                         else model.traverse(c => { if(c.isMesh) c.material.color.set(newCol); });
                         
@@ -680,22 +700,22 @@
                         saveColors();
                     });
 
-                    d.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
-                    d.querySelector('.opacity-slider').oninput = (e) => {
+                    containerDiv.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
+                    containerDiv.querySelector('.opacity-slider').oninput = (e) => {
                         const val = parseFloat(e.target.value);
                         if (isSTL) model.material.opacity = val; else model.traverse(c => { if(c.isMesh) c.material.opacity = val; });
                     };
-                    if(isU) d.querySelector('.del-btn').onclick = async () => {
+                    if(isU) containerDiv.querySelector('.del-btn').onclick = async () => {
                         if(confirm(`Smazat ${disp}?`)) { 
                             const { error } = await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]);
                             if (error) {
                                 alert("Chyba při mazání. Zkontrolujte pravidlo DELETE v Supabase (Policies).");
                             } else {
-                                modelsGroup.remove(model); d.remove(); 
+                                modelsGroup.remove(model); containerDiv.remove(); 
                             }
                         }
                     };
-                    document.getElementById('model-list').appendChild(d); res();
+                    res();
                 });
             });
         }
@@ -703,7 +723,8 @@
         const cubeCont = document.getElementById('viewcube-container');
         const cubeScene = new THREE.Scene();
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
-        const cubeRen = new THREE.WebGLRenderer({ antialias: true, alpha: true }); cubeRen.setSize(cubeSize, cubeSize);
+        const cubeRen = new THREE.WebGLRenderer({ antialias: true, alpha: true }); 
+        cubeRen.setSize(cubeSize, cubeSize);
         cubeCont.appendChild(cubeRen.domElement);
 
         function createLbl(txt, col) {
@@ -840,7 +861,14 @@
         if(currentSessionId && window.location.search.includes('id=')) fetchModels();
         anim();
         
-        window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+        window.onresize = () => { 
+            camera.aspect = window.innerWidth / window.innerHeight; 
+            camera.updateProjectionMatrix(); 
+            renderer.setSize(window.innerWidth, window.innerHeight); 
+            
+            cubeSize = window.innerWidth <= 768 ? 80 : 130;
+            cubeRen.setSize(cubeSize, cubeSize);
+        };
     </script>
 </body>
 </html>
