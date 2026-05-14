@@ -107,7 +107,7 @@
             <div id="model-list"></div>
         </div>
 
-        <!-- Sekce 2: Roviny (Nově odděleno) -->
+        <!-- Sekce 2: Roviny -->
         <div class="header-bar" onclick="toggleSection('ui-planes', 'icon-planes')">
             <h2>📐 Roviny</h2><span id="icon-planes">▼</span>
         </div>
@@ -387,7 +387,8 @@
                 const hits = raycaster.intersectObject(modelsGroup, true);
                 if (hits.length > 0) {
                     const pt = hits[0].point.clone();
-                    if (pt.distanceTo(currentStroke[currentStroke.length - 1]) > 2) {
+                    // Optimalizovaná hustota - linka bude plynulá
+                    if (pt.distanceTo(currentStroke[currentStroke.length - 1]) > 0.5) {
                         currentStroke.push(pt);
                         addSphereToGroup(tempPaintGroup, pt, 0xffffff);
                     }
@@ -419,9 +420,10 @@
             }
         });
 
+        // Optimalizovaná velikost pro přesnější obkreslení (0.25)
         function addSphereToGroup(group, pos, color) {
             const m = new THREE.MeshBasicMaterial({ color: color });
-            const s = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 12), m);
+            const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
             s.position.copy(pos);
             group.add(s);
         }
