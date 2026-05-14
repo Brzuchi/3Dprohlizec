@@ -6,6 +6,580 @@
     <title>⚕️ 3D prohlížeč</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
+        
+        /* Flexbox oprava pro UI kontejner */
+        #ui-container { 
+            position: absolute; top: 20px; left: 20px; 
+            background: rgba(30, 30, 30, 0.9); border-radius: 10px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
+            width: 320px; z-index: 10; border: 1px solid #444; 
+            display: flex; flex-direction: column; 
+            max-height: calc(100vh - 40px); 
+        }
+        
+        .toolbar { display: flex; background: rgba(10, 10, 10, 0.8); border-radius: 10px 10px 0 0; padding: 10px; gap: 5px; border-bottom: 1px solid #444; flex: 0 0 auto; }
+        .tool-btn { flex: 1; padding: 8px 5px; background: #333; color: white; border: 1px solid #555; border-radius: 5px; cursor: pointer; font-size: 0.85em; font-weight: bold; transition: 0.2s; }
+        .tool-btn:hover { background: #444; }
+        .tool-btn.active { background: #007bff; border-color: #007bff; }
+
+        .header-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: rgba(20, 20, 20, 0.6); cursor: pointer; user-select: none; border-bottom: 1px solid #444; flex: 0 0 auto; }
+        .header-bar h2 { margin: 0; font-size: 1em; pointer-events: none; }
+        .header-bar span { transition: transform 0.2s; }
+        
+        /* Oprava squashingu: Sekce sdílejí prostor rovnoměrně */
+        .ui-section-content { 
+            padding: 0 20px 15px 20px; 
+            overflow-y: auto; 
+            display: flex; flex-direction: column;
+            border-bottom: 1px solid #333; 
+            flex: 1 1 auto; /* Povolí smršťování i roztahování */
+            min-height: 0; /* Nutné pro správný scroll ve flexu */
+        }
+        .ui-section-content.collapsed { display: none; flex: 0 0 0; } 
+
+        .upload-btn { background: #28a745; color: white; padding: 10px; border-radius: 5px; cursor: pointer; text-align: center; display: block; font-weight: 600; margin-top: 15px; margin-bottom: 10px; flex: 0 0 auto; }
+        input[type="file"] { display: none; }
+        
+        #link-container { display: none; margin-bottom: 15px; padding: 10px; background: rgba(0, 123, 255, 0.1); border: 1px solid #007bff; border-radius: 5px; flex: 0 0 auto; }
+        .link-row { display: flex; gap: 8px; margin-top: 5px; align-items: center; }
+        .generated-link { flex: 1; color: #00a2ff; word-break: break-all; font-size: 0.8em; text-decoration: none; font-family: monospace; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; }
+        .copy-btn { background: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 0.75em; }
+
+        .btn-group { display: flex; gap: 8px; margin-bottom: 15px; flex: 0 0 auto; }
+        .reset-btn, .delete-all-btn { padding: 8px; border-radius: 5px; cursor: pointer; text-align: center; flex: 1; font-weight: 600; border: none; font-size: 0.85em; color: white; }
+        .reset-btn { background: #6c757d; } .delete-all-btn { background: #dc3545; }
+
+        .item-row { margin-top: 10px; display: flex; flex-direction: column; background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; border-left: 4px solid transparent; flex: 0 0 auto; }
+        .item-top { display: flex; justify-content: space-between; align-items: center; }
+        .item-left { display: flex; align-items: center; overflow: hidden; flex: 1;}
+        
+        .color-picker-btn { -webkit-appearance: none; border: none; width: 16px; height: 16px; border-radius: 3px; cursor: pointer; padding: 0; margin-right: 10px; background: none; flex-shrink: 0; }
+        .color-picker-btn::-webkit-color-swatch-wrapper { padding: 0; }
+        .color-picker-btn::-webkit-color-swatch { border: 1px solid #555; border-radius: 3px; }
+
+        .item-left input[type="checkbox"] { margin-right: 10px; cursor: pointer; }
+        .item-left label { cursor: pointer; font-weight: 600; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .item-actions { display: flex; gap: 8px; }
+        .icon-btn { cursor: pointer; font-size: 1.1em; opacity: 0.7; transition: 0.2s; }
+        .icon-btn:hover { opacity: 1; }
+        .del-btn { color: #dc3545; }
+        .edit-btn { color: #ffc107; }
+        .export-btn { color: #0dcaf0; }
+
+        .slider-group { margin-top: 12px; flex: 0 0 auto; }
+        .slider-group input[type="range"] { width: 100%; height: 3px; accent-color: #007bff; cursor: pointer; }
+        
+        .clipping-section { padding-top: 5px; }
+        .clip-row { display: flex; align-items: center; margin-bottom: 2px; }
+        .clip-row input[type="checkbox"] { margin-right: 8px; cursor: pointer; }
+        .clip-label { font-size: 0.7em; color: #ccc; text-transform: uppercase; user-select: none; cursor: pointer; }
+        
+        .cut-btn { background: #dc3545; color: white; border: none; border-radius: 3px; font-size: 0.65em; padding: 3px 8px; margin-left: auto; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .cut-btn:hover { background: #c82333; }
+
+        #viewcube-container { position: absolute; top: 20px; right: 20px; width: 130px; height: 130px; z-index: 20; }
+        @media (max-width: 768px) {
+            #viewcube-container { width: 80px; height: 80px; top: 15px; right: 15px; }
+            #ui-container { width: 280px; left: 10px; top: 10px; }
+        }
+
+        #viewer { width: 100vw; height: 100vh; display: block; }
+        #loader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; flex-direction: column; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #drop-zone { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 123, 255, 0.2); border: 4px dashed #007bff; box-sizing: border-box; z-index: 999; justify-content: center; align-items: center; flex-direction: column; color: #007bff; font-size: 2em; font-weight: bold; pointer-events: none; }
+
+        .measure-label { position: absolute; background: rgba(0,0,0,0.7); color: #00ff00; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 12px; pointer-events: none; border: 1px solid #00ff00; transform: translate(-50%, -50%); z-index: 5; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script type="importmap"> { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } } </script>
+</head>
+<body>
+    <div id="loader-overlay"><div style="border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite;"></div></div>
+    <div id="drop-zone">📂 Odložte modely sem</div>
+    <div id="labels-container"></div>
+
+    <div id="ui-container">
+        <div class="toolbar">
+            <button id="tool-view" class="tool-btn active">🖐️ Prohlížet</button>
+            <button id="tool-paint" class="tool-btn">🖌️ Označit</button>
+            <button id="tool-measure" class="tool-btn">📏 Změřit</button>
+        </div>
+
+        <div class="header-bar" onclick="toggleSection('ui-models', 'icon-models')">
+            <h2>⚙️ Modely</h2><span id="icon-models">▼</span>
+        </div>
+        <div id="ui-models" class="ui-section-content">
+            <label class="upload-btn" id="upload-label">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
+            <div id="link-container">
+                <div style="font-size: 0.8em; margin-bottom: 5px; color: #aaa;">Odkaz pro sdílení:</div>
+                <div class="link-row"><a id="share-link" class="generated-link" href="#" target="_blank"></a><button id="copy-link-btn" class="copy-btn">Kopírovat</button></div>
+            </div>
+            <div class="btn-group">
+                <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
+                <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
+            </div>
+            <div id="model-list"></div>
+        </div>
+
+        <div class="header-bar" onclick="toggleSection('ui-planes', 'icon-planes')">
+            <h2>📐 Roviny</h2><span id="icon-planes">▼</span>
+        </div>
+        <div id="ui-planes" class="ui-section-content">
+            <div class="clipping-section">
+                <div class="slider-group">
+                    <div class="clip-row"><input type="checkbox" id="clip-x-toggle"><label class="clip-label" for="clip-x-toggle">SAG</label><button class="cut-btn" id="cut-x" title="Udělat řez">ŘEZ</button></div>
+                    <input type="range" id="clip-x" step="0.5">
+                </div>
+                <div class="slider-group">
+                    <div class="clip-row"><input type="checkbox" id="clip-y-toggle"><label class="clip-label" for="clip-y-toggle">TRA</label><button class="cut-btn" id="cut-y" title="Udělat řez">ŘEZ</button></div>
+                    <input type="range" id="clip-y" step="0.5">
+                </div>
+                <div class="slider-group">
+                    <div class="clip-row"><input type="checkbox" id="clip-z-toggle"><label class="clip-label" for="clip-z-toggle">COR</label><button class="cut-btn" id="cut-z" title="Udělat řez">ŘEZ</button></div>
+                    <input type="range" id="clip-z" step="0.5">
+                </div>
+            </div>
+        </div>
+
+        <div class="header-bar" onclick="toggleSection('ui-comments', 'icon-comments')">
+            <h2>💬 Značky a měření</h2><span id="icon-comments">▼</span>
+        </div>
+        <div id="ui-comments" class="ui-section-content" style="border-bottom: none;">
+            <div id="comment-list" style="margin-top: 10px; margin-bottom: 20px;"><em>Zatím žádná data. Použijte nástroje nahoře.</em></div>
+        </div>
+    </div>
+
+    <div id="viewcube-container"></div>
+    <div id="viewer"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+        const supabase = createClient('https://aukjrwkjvuhmbfqqgoav.supabase.co', 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3');
+        let cubeSize = window.innerWidth <= 768 ? 80 : 130;
+        let currentSessionId = new URLSearchParams(window.location.search).get('id');
+        
+        let currentTool = 'view';
+        let isInteracting = false;
+        
+        let annotations = [];
+        let modelColors = {}; 
+        let activeStrokeColor = 0xffff00; // Výchozí žlutá
+
+        let currentStroke = [];
+        let tempPaintGroup = null;
+        let measureStartPoint = null;
+        let tempMeasureLine = null;
+
+        const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1a1a);
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000); camera.position.set(200, 200, 200);
+        const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.localClippingEnabled = true;
+        document.getElementById('viewer').appendChild(renderer.domElement);
+        const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
+        
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
+        const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
+        const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
+
+        const clipX = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 100000); 
+        const clipY = new THREE.Plane(new THREE.Vector3(0, -1, 0), 100000);
+        const clipZ = new THREE.Plane(new THREE.Vector3(0, 0, -1), 100000);
+        const globalClipPlanes = [clipX, clipY, clipZ];
+
+        function updateClipping() {
+            clipX.constant = document.getElementById('clip-x-toggle').checked ? parseFloat(document.getElementById('clip-x').value) : 100000;
+            clipY.constant = document.getElementById('clip-y-toggle').checked ? parseFloat(document.getElementById('clip-y').value) : 100000;
+            clipZ.constant = document.getElementById('clip-z-toggle').checked ? parseFloat(document.getElementById('clip-z').value) : 100000;
+        }
+
+        ['clip-x', 'clip-y', 'clip-z'].forEach(id => document.getElementById(id).addEventListener('input', updateClipping));
+        ['clip-x-toggle', 'clip-y-toggle', 'clip-z-toggle'].forEach(id => document.getElementById(id).addEventListener('change', updateClipping));
+
+        // --- DYNAMICKÝ KONTRAST ---
+        function getContrastColor(hitObject) {
+            if (!hitObject || !hitObject.material || !hitObject.material.color) return 0xffff00;
+            const c = hitObject.material.color;
+            const luminance = (0.299 * c.r + 0.587 * c.g + 0.114 * c.b);
+            return luminance > 0.5 ? 0x0000ff : 0xffff00; // Pokud je světlý, dej sytě modrou, pokud tmavý, dej zářivě žlutou
+        }
+
+        window.toggleSection = (id, iconId) => {
+            const el = document.getElementById(id); const icon = document.getElementById(iconId);
+            if (el && icon) { 
+                el.classList.toggle('collapsed'); 
+                icon.style.transform = el.classList.contains('collapsed') ? 'rotate(-90deg)' : 'rotate(0deg)'; 
+            }
+        };
+
+        if (window.innerWidth <= 768) {
+            toggleSection('ui-models', 'icon-models');
+            toggleSection('ui-planes', 'icon-planes');
+            toggleSection('ui-comments', 'icon-comments');
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const mouseVec = new THREE.Vector2();
+
+        document.querySelectorAll('.tool-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTool = btn.id.replace('tool-', '');
+                controls.enabled = (currentTool === 'view');
+                measureStartPoint = null;
+                if(tempMeasureLine) { scene.remove(tempMeasureLine); tempMeasureLine = null; }
+            };
+        });
+
+        const viewerDiv = document.getElementById('viewer');
+        
+        viewerDiv.addEventListener('pointerdown', (e) => {
+            if (currentTool === 'view') return;
+            if (e.button !== 0) return;
+
+            mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouseVec, camera);
+            const hits = raycaster.intersectObject(modelsGroup, true);
+
+            if (hits.length > 0) {
+                // NASTAVENÍ KONTRASTNÍ BARVY
+                activeStrokeColor = getContrastColor(hits[0].object);
+
+                if (currentTool === 'paint') {
+                    isInteracting = true;
+                    currentStroke = [hits[0].point.clone()];
+                    tempPaintGroup = new THREE.Group();
+                    annotationsGroup.add(tempPaintGroup);
+                    addSphereToGroup(tempPaintGroup, hits[0].point, activeStrokeColor);
+                } 
+                else if (currentTool === 'measure') {
+                    if (!measureStartPoint) {
+                        measureStartPoint = hits[0].point.clone();
+                        tempPaintGroup = new THREE.Group();
+                        annotationsGroup.add(tempPaintGroup);
+                        addSphereToGroup(tempPaintGroup, measureStartPoint, activeStrokeColor);
+                    } else {
+                        const p2 = hits[0].point.clone();
+                        const dist = measureStartPoint.distanceTo(p2);
+                        const desc = prompt("Popis měření (nebo nechte prázdné pro pouhou vzdálenost):");
+                        finishMeasurement(measureStartPoint, p2, dist, desc, activeStrokeColor);
+                        measureStartPoint = null;
+                        if(tempPaintGroup) { annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; }
+                        if(tempMeasureLine) { scene.remove(tempMeasureLine); tempMeasureLine = null; }
+                        document.getElementById('tool-view').click();
+                    }
+                }
+            }
+        });
+
+        viewerDiv.addEventListener('pointermove', (e) => {
+            if (currentTool === 'view') return;
+            mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouseVec, camera);
+
+            if (currentTool === 'paint' && isInteracting) {
+                const hits = raycaster.intersectObject(modelsGroup, true);
+                if (hits.length > 0) {
+                    const pt = hits[0].point.clone();
+                    if (pt.distanceTo(currentStroke[currentStroke.length - 1]) > 0.5) {
+                        currentStroke.push(pt);
+                        addSphereToGroup(tempPaintGroup, pt, activeStrokeColor);
+                    }
+                }
+            } 
+            else if (currentTool === 'measure' && measureStartPoint) {
+                const hits = raycaster.intersectObject(modelsGroup, true);
+                if (hits.length > 0) {
+                    if(tempMeasureLine) scene.remove(tempMeasureLine);
+                    const mat = new THREE.LineBasicMaterial({ color: activeStrokeColor, linewidth: 2 });
+                    const geo = new THREE.BufferGeometry().setFromPoints([measureStartPoint, hits[0].point]);
+                    tempMeasureLine = new THREE.Line(geo, mat);
+                    scene.add(tempMeasureLine);
+                }
+            }
+        });
+
+        viewerDiv.addEventListener('pointerup', async (e) => {
+            if (currentTool === 'paint' && isInteracting) {
+                isInteracting = false;
+                if (currentStroke.length > 0) {
+                    const text = prompt("Komentář k nákresu:");
+                    if (text) {
+                        await finishPaintStroke(currentStroke, text, activeStrokeColor);
+                    }
+                    annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; currentStroke = [];
+                }
+            }
+        });
+
+        function addSphereToGroup(group, pos, color) {
+            const m = new THREE.MeshBasicMaterial({ color: color });
+            const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
+            s.position.copy(pos);
+            group.add(s);
+        }
+
+        async function finishPaintStroke(points, text, color) {
+            const grp = new THREE.Group();
+            points.forEach(p => addSphereToGroup(grp, p, color));
+            annotationsGroup.add(grp);
+            const annot = { id: Date.now(), type: 'paint', data: points.map(p=>({x:p.x, y:p.y, z:p.z})), text, color, visible: true, meshGroup: grp };
+            annotations.push(annot); renderAnnotationUI(annot); await saveAnnotations();
+        }
+
+        async function finishMeasurement(p1, p2, dist, desc, color) {
+            const grp = new THREE.Group();
+            addSphereToGroup(grp, p1, color);
+            addSphereToGroup(grp, p2, color);
+            const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), new THREE.LineBasicMaterial({ color: color }));
+            grp.add(line);
+            annotationsGroup.add(grp);
+
+            const text = desc ? `${desc} (${dist.toFixed(2)} mm)` : `${dist.toFixed(2)} mm`;
+            const div = document.createElement('div');
+            div.className = 'measure-label'; div.innerText = text;
+            div.style.color = '#' + new THREE.Color(color).getHexString();
+            div.style.borderColor = '#' + new THREE.Color(color).getHexString();
+            document.getElementById('labels-container').appendChild(div);
+
+            const annot = { id: Date.now(), type: 'measure', data: {p1, p2, dist}, text, color, visible: true, meshGroup: grp, htmlElement: div };
+            annotations.push(annot); renderAnnotationUI(annot); await saveAnnotations();
+        }
+
+        function performCut(planeType, planeNormal, planeConstant) {
+            const plane = new THREE.Plane(planeNormal, planeConstant);
+            let segments = [];
+            modelsGroup.children.forEach(model => {
+                if(!model.visible) return; 
+                model.traverse(child => {
+                    if (child.isMesh) {
+                        const geom = child.geometry;
+                        if (!geom.attributes.position) return;
+                        const pos = geom.attributes.position;
+                        const matrix = child.matrixWorld;
+                        for (let i = 0; i < pos.count; i += 3) {
+                            const v1 = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(matrix);
+                            const v2 = new THREE.Vector3().fromBufferAttribute(pos, i+1).applyMatrix4(matrix);
+                            const v3 = new THREE.Vector3().fromBufferAttribute(pos, i+2).applyMatrix4(matrix);
+                            const d1 = plane.distanceToPoint(v1); const d2 = plane.distanceToPoint(v2); const d3 = plane.distanceToPoint(v3);
+                            if ((d1 > 0 && d2 > 0 && d3 > 0) || (d1 < 0 && d2 < 0 && d3 < 0)) continue;
+                            const pts = [];
+                            if (d1 * d2 <= 0 && d1 !== d2) pts.push(v1.clone().lerp(v2, Math.abs(d1) / (Math.abs(d1) + Math.abs(d2))));
+                            if (d2 * d3 <= 0 && d2 !== d3) pts.push(v2.clone().lerp(v3, Math.abs(d2) / (Math.abs(d2) + Math.abs(d3))));
+                            if (d3 * d1 <= 0 && d3 !== d1) pts.push(v3.clone().lerp(v1, Math.abs(d3) / (Math.abs(d3) + Math.abs(d1))));
+                            if (pts.length >= 2) segments.push(pts[0], pts[1]);
+                        }
+                    }
+                });
+            });
+
+            if (segments.length === 0) { alert("Řezná rovina neprotíná žádný viditelný model."); return; }
+            const color = 0x00ffff; // Řezy defaultně v azurové
+            const meshGroup = new THREE.Group();
+            const cutMesh = createContourMesh(segments, color, planeNormal);
+            meshGroup.add(cutMesh); annotationsGroup.add(meshGroup);
+            const annot = { id: Date.now(), type: 'cut', data: segments.map(p => ({x: p.x, y: p.y, z: p.z})), planeNormal: {x: planeNormal.x, y: planeNormal.y, z: planeNormal.z}, text: `Řez ${planeType}`, color, visible: true, meshGroup };
+            annotations.push(annot); renderAnnotationUI(annot); saveAnnotations();
+        }
+
+        function createContourMesh(segments, color, planeNormal) {
+            const thickness = 0.8; const geom = new THREE.BufferGeometry(); const vertices = []; const indices = []; let vIdx = 0;
+            for(let i=0; i<segments.length; i+=2) {
+                const p1 = segments[i]; const p2 = segments[i+1]; const dir = new THREE.Vector3().subVectors(p2, p1);
+                let up = new THREE.Vector3().crossVectors(dir, planeNormal).normalize().multiplyScalar(thickness/2);
+                if (up.lengthSq() < 0.0001) { const fb = new THREE.Vector3(1,0,0); if (Math.abs(planeNormal.x) > 0.9) fb.set(0,1,0); up.crossVectors(dir, fb).normalize().multiplyScalar(thickness/2); }
+                vertices.push(p1.x - up.x, p1.y - up.y, p1.z - up.z, p1.x + up.x, p1.y + up.y, p1.z + up.z, p2.x - up.x, p2.y - up.y, p2.z - up.z, p2.x + up.x, p2.y + up.y, p2.z + up.z);
+                indices.push(vIdx, vIdx+1, vIdx+2, vIdx+1, vIdx+3, vIdx+2, vIdx, vIdx+2, vIdx+1, vIdx+1, vIdx+2, vIdx+3); vIdx += 4;
+            }
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geom.setIndex(indices); geom.computeVertexNormals();
+            return new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+        }
+
+        document.getElementById('cut-x').onclick = () => performCut('SAG', new THREE.Vector3(-1, 0, 0), parseFloat(document.getElementById('clip-x').value));
+        document.getElementById('cut-y').onclick = () => performCut('TRA', new THREE.Vector3(0, -1, 0), parseFloat(document.getElementById('clip-y').value));
+        document.getElementById('cut-z').onclick = () => performCut('COR', new THREE.Vector3(0, 0, -1), parseFloat(document.getElementById('clip-z').value));
+
+        function renderAnnotationUI(annot) {
+            const list = document.getElementById('comment-list');
+            if (list.querySelector('em')) list.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = 'item-row';
+            div.style.borderLeftColor = '#' + new THREE.Color(annot.color).getHexString();
+            let iconText = ''; if (annot.type === 'paint') iconText = '🖌️ '; if (annot.type === 'cut') iconText = '✂️ ';
+            div.innerHTML = `<div class="item-top"><div class="item-left"><input type="checkbox" checked title="Zobrazit/Skrýt"><label title="${annot.text}">${iconText}${annot.text}</label></div><div class="item-actions">${(annot.type === 'paint' || annot.type === 'cut') ? '<span class="icon-btn export-btn" title="Exportovat jako STL">💾</span>' : ''}<span class="icon-btn edit-btn" title="Upravit text">✏️</span><span class="icon-btn del-btn" title="Smazat">🗑️</span></div></div>`;
+            div.querySelector('input[type="checkbox"]').onchange = (e) => { annot.visible = e.target.checked; annot.meshGroup.visible = annot.visible; if(annot.htmlElement) annot.htmlElement.style.display = annot.visible ? 'block' : 'none'; };
+            if (annot.type === 'paint' || annot.type === 'cut') {
+                div.querySelector('.export-btn').onclick = (e) => {
+                    e.stopPropagation(); const eg = new THREE.Group(); const cl = annot.meshGroup.clone(); eg.add(cl); eg.rotation.x = Math.PI / 2; eg.updateMatrixWorld(true);
+                    const blob = new Blob([new STLExporter().parse(eg)], { type: 'text/plain' });
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `nakres_${annot.text.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.stl`; a.click();
+                };
+            }
+            div.querySelector('.edit-btn').onclick = async () => {
+                const nt = prompt("Upravit text:", annot.text);
+                if (nt) { annot.text = nt; div.querySelector('label').innerText = `${iconText}${nt}`; if(annot.htmlElement) annot.htmlElement.innerText = nt; await saveAnnotations(); }
+            };
+            div.querySelector('.del-btn').onclick = async () => {
+                if(confirm("Opravdu smazat?")) { annotationsGroup.remove(annot.meshGroup); if(annot.htmlElement) annot.htmlElement.remove(); annotations = annotations.filter(a => a.id !== annot.id); div.remove(); if(annotations.length === 0) list.innerHTML = '<em>Zatím žádná data.</em>'; await saveAnnotations(); }
+            };
+            list.appendChild(div);
+        }
+
+        async function saveAnnotations() {
+            if(!currentSessionId) return;
+            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, planeNormal: a.planeNormal, text: a.text, color: a.color }));
+            await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }), { upsert: true });
+        }
+
+        async function saveColors() {
+            if(!currentSessionId) return;
+            await supabase.storage.from('models').upload(`shared/${currentSessionId}/colors.json`, new Blob([JSON.stringify(modelColors)], { type: 'application/json' }), { upsert: true });
+        }
+
+        async function loadAnnotationsAndColors(id) {
+            const cb = '?t=' + Date.now();
+            const { data: cUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/colors.json`);
+            try { const r = await fetch(cUrl.publicUrl + cb, { cache: "no-store" }); if(r.ok) modelColors = await r.json(); } catch(e){}
+            const { data: aUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/annotations.json`);
+            try { 
+                const r = await fetch(aUrl.publicUrl + cb, { cache: "no-store" }); 
+                if(r.ok) {
+                    const list = await r.json();
+                    for (const a of list) {
+                        if (a.type === 'paint') await finishPaintStroke(a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)), a.text, a.color);
+                        else if (a.type === 'cut') {
+                            const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)); const n = new THREE.Vector3(a.planeNormal.x, a.planeNormal.y, a.planeNormal.z);
+                            const grp = new THREE.Group(); grp.add(createContourMesh(pts, a.color, n)); annotationsGroup.add(grp);
+                            const annot = { ...a, visible: true, meshGroup: grp }; annotations.push(annot); renderAnnotationUI(annot);
+                        } else if (a.type === 'measure') {
+                            const p1 = new THREE.Vector3(a.data.p1.x, a.data.p1.y, a.data.p1.z); const p2 = new THREE.Vector3(a.data.p2.x, a.data.p2.y, a.data.p2.z);
+                            await finishMeasurement(p1, p2, a.data.dist, a.text, a.color);
+                        }
+                    }
+                }
+            } catch(e){}
+        }
+
+        async function fetchModels(targetId) {
+            const id = targetId || currentSessionId; if (!id) return;
+            if (!targetId) { document.getElementById('upload-label').style.display = 'none'; document.getElementById('link-container').style.display = 'none'; }
+            else { 
+                document.getElementById('reset-btn').style.display = 'block'; document.getElementById('delete-all-btn').style.display = 'block'; 
+                const u = `${window.location.origin}${window.location.pathname}?id=${id}`; document.getElementById('share-link').href = u; document.getElementById('share-link').innerText = u; document.getElementById('link-container').style.display = 'block';
+            }
+            document.getElementById('loader-overlay').style.display = 'flex';
+            document.getElementById('model-list').innerHTML = ""; modelsGroup.clear(); annotationsGroup.clear(); annotations = []; 
+            document.getElementById('comment-list').innerHTML = "<em>Zatím žádná data.</em>"; document.getElementById('labels-container').innerHTML = '';
+            await loadAnnotationsAndColors(id);
+            const { data } = await supabase.storage.from('models').list(`shared/${id}`);
+            let validFiles = (data || []).filter(f => !f.name.startsWith('.') && !f.name.endsWith('.json'));
+            validFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+            let colorsChanged = false;
+            const loadPromises = validFiles.map(async (f) => {
+                const { data: pu } = supabase.storage.from('models').getPublicUrl(`shared/${id}/${f.name}`);
+                let fc = modelColors[f.name]; if (!fc) { fc = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'); modelColors[f.name] = fc; colorsChanged = true; }
+                const d = document.createElement('div'); d.className = 'item-row'; d.style.borderLeftColor = fc; d.innerHTML = `<div style="font-size:0.8em; color:#aaa;">Načítám ${f.name}...</div>`; document.getElementById('model-list').appendChild(d);
+                return renderModel(pu.publicUrl, f.name, fc, !!targetId, d);
+            });
+            await Promise.all(loadPromises);
+            if (colorsChanged && validFiles.length > 0) saveColors();
+            const b = new THREE.Box3().setFromObject(modelsGroup); 
+            if (!b.isEmpty()) {
+                controls.target.copy(b.getCenter(new THREE.Vector3())); controls.update();
+                const pad = 2; const sx = document.getElementById('clip-x'); sx.max = b.max.x+pad; sx.min = b.min.x-pad; sx.value = sx.max;
+                const sy = document.getElementById('clip-y'); sy.max = b.max.y+pad; sy.min = b.min.y-pad; sy.value = sy.max;
+                const sz = document.getElementById('clip-z'); sz.max = b.max.z+pad; sz.min = b.min.z-pad; sz.value = sz.max;
+                updateClipping();
+            }
+            document.getElementById('loader-overlay').style.display = 'none';
+        }
+
+        async function renderModel(url, name, col, isU, containerDiv) {
+            const isSTL = name.toLowerCase().endsWith('.stl'); const l = isSTL ? new STLLoader() : new OBJLoader();
+            return new Promise((res) => {
+                l.load(url, (r) => {
+                    const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
+                    let model; if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
+                    modelsGroup.add(model);
+                    const disp = name.replace(/\.(stl|obj)$/i, '');
+                    containerDiv.innerHTML = `<div class="item-top"><div class="item-left"><input type="color" class="color-picker-btn" value="${col}" title="Změnit barvu"><input type="checkbox" checked title="Zobrazit/Skrýt"><label>${disp}</label></div>${isU ? '<div class="item-actions"><span class="icon-btn del-btn">🗑️</span></div>' : ""}</div><div class="slider-group"><input type="range" class="opacity-slider" min="0" max="1" step="0.01" value="1"><div class="slider-label">Viditelnost</div></div>`;
+                    containerDiv.querySelector('.color-picker-btn').onchange = (e) => { const nc = e.target.value; containerDiv.style.borderLeftColor = nc; if (isSTL) model.material.color.set(nc); else model.traverse(c => { if(c.isMesh) c.material.color.set(nc); }); modelColors[name] = nc; saveColors(); };
+                    containerDiv.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
+                    containerDiv.querySelector('.opacity-slider').oninput = (e) => { const v = parseFloat(e.target.value); if (isSTL) model.material.opacity = v; else model.traverse(c => { if(c.isMesh) c.material.opacity = v; }); };
+                    if(isU) containerDiv.querySelector('.del-btn').onclick = async () => { if(confirm(`Smazat ${disp}?`)) { const { error } = await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); if (error) { alert("Chyba při mazání."); } else { modelsGroup.remove(model); containerDiv.remove(); } } };
+                    res();
+                });
+            });
+        }
+
+        const cubeCont = document.getElementById('viewcube-container');
+        const cubeScene = new THREE.Scene();
+        const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
+        const cubeRen = new THREE.WebGLRenderer({ antialias: true, alpha: true }); cubeRen.setSize(cubeSize, cubeSize); cubeCont.appendChild(cubeRen.domElement);
+        function createLbl(txt, col) { const canv = document.createElement('canvas'); canv.width = 128; canv.height = 128; const ctx = canv.getContext('2d'); ctx.fillStyle = '#333'; ctx.fillRect(0, 0, 128, 128); ctx.strokeStyle = '#666'; ctx.lineWidth = 6; ctx.strokeRect(0, 0, 128, 128); ctx.fillStyle = col; ctx.font = 'bold 20px Segoe UI'; ctx.textAlign = 'center'; ctx.fillText(txt, 64, 75); return new THREE.CanvasTexture(canv); }
+        const orientCube = new THREE.Mesh(new THREE.BoxGeometry(85, 85, 85), [new THREE.MeshBasicMaterial({ map: createLbl('LAT', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('MED', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('SUP', '#44ff44') }), new THREE.MeshBasicMaterial({ map: createLbl('INF', '#ffff00') }), new THREE.MeshBasicMaterial({ map: createLbl('ANT', '#4444ff') }), new THREE.MeshBasicMaterial({ map: createLbl('POST', '#4444ff') })]);
+        cubeScene.add(orientCube);
+        cubeCont.addEventListener('click', (e) => {
+            const r = cubeRen.domElement.getBoundingClientRect(); const m = new THREE.Vector2(((e.clientX - r.left) / cubeSize) * 2 - 1, -((e.clientY - r.top) / cubeSize) * 2 + 1); const rc = new THREE.Raycaster(); rc.setFromCamera(m, cubeCam); const hits = rc.intersectObject(orientCube);
+            if (hits.length > 0) { const b = new THREE.Box3().setFromObject(modelsGroup); const c = b.getCenter(new THREE.Vector3()); const d = Math.max(b.getSize(new THREE.Vector3()).x, b.getSize(new THREE.Vector3()).y, b.getSize(new THREE.Vector3()).z) * 1.5 || 250; const idx = Math.floor(hits[0].faceIndex / 2); const p = [new THREE.Vector3(c.x+d, c.y, c.z), new THREE.Vector3(c.x-d, c.y, c.z), new THREE.Vector3(c.x, c.y+d, c.z), new THREE.Vector3(c.x, c.y-d, c.z), new THREE.Vector3(c.x, c.y, c.z+d), new THREE.Vector3(c.x, c.y, c.z-d)]; camera.position.copy(p[idx]); controls.target.copy(c); controls.update(); }
+        });
+
+        async function handleUpload(files) {
+            if(!currentSessionId) currentSessionId = Math.random().toString(36).substring(2, 10);
+            document.getElementById('loader-overlay').style.display = 'flex';
+            for (const f of files) {
+                if (f.name.endsWith('.zip')) {
+                    const z = await JSZip.loadAsync(f);
+                    for (const [p, en] of Object.entries(z.files)) { if (!en.dir && (p.endsWith('.stl') || p.endsWith('.obj'))) await supabase.storage.from('models').upload(`shared/${currentSessionId}/${p.split('/').pop()}`, await en.async("blob"), { upsert: true }); }
+                } else await supabase.storage.from('models').upload(`shared/${currentSessionId}/${f.name}`, f, { upsert: true });
+            }
+            window.history.replaceState({}, '', `${window.location.pathname}?id=${currentSessionId}`); await fetchModels(currentSessionId);
+        }
+        document.getElementById('file-input').onchange = (e) => handleUpload(e.target.files);
+        const dropZone = document.getElementById('drop-zone'); let dragCounter = 0;
+        window.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; dropZone.style.display = 'flex'; });
+        window.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) dropZone.style.display = 'none'; });
+        window.addEventListener('dragover', (e) => { e.preventDefault(); });
+        window.addEventListener('drop', async (e) => { e.preventDefault(); dragCounter = 0; dropZone.style.display = 'none'; if (e.dataTransfer.files && e.dataTransfer.files.length > 0) await handleUpload(e.dataTransfer.files); });
+        document.getElementById('copy-link-btn').onclick = () => { navigator.clipboard.writeText(document.getElementById('share-link').innerText).then(() => { const btn = document.getElementById('copy-link-btn'); btn.innerText = "Hotovo!"; btn.style.background = "#28a745"; setTimeout(() => { btn.innerText = "Kopírovat"; btn.style.background = "#007bff"; }, 2000); }); };
+        document.getElementById('delete-all-btn').onclick = async () => { if(confirm("Smazat vše?")) { const { data } = await supabase.storage.from('models').list(`shared/${currentSessionId}`); if(data && data.length > 0) { const { error } = await supabase.storage.from('models').remove(data.map(f => `shared/${currentSessionId}/${f.name}`)); if (error) alert("Chyba."); else location.reload(); } else location.reload(); } };
+        document.getElementById('reset-btn').onclick = () => window.location.href = window.location.pathname;
+
+        function updateLabels() {
+            annotations.forEach(a => {
+                if (a.type === 'measure' && a.visible && a.htmlElement) {
+                    const mid = new THREE.Vector3().addVectors(a.data.p1, a.data.p2).multiplyScalar(0.5); const v = mid.clone().project(camera);
+                    const x = (v.x * .5 + .5) * window.innerWidth; const y = (v.y * -.5 + .5) * window.innerHeight;
+                    if (v.z > 1) a.htmlElement.style.display = 'none'; 
+                    else { a.htmlElement.style.display = 'block'; a.htmlElement.style.left = `${x}px`; a.htmlElement.style.top = `${y}px`; }
+                }
+            });
+        }
+
+        function anim() { requestAnimationFrame(anim); controls.update(); orientCube.quaternion.copy(camera.quaternion).invert(); updateLabels(); renderer.render(scene, camera); cubeRen.render(cubeScene, cubeCam); }
+        if(currentSessionId && window.location.search.includes('id=')) fetchModels();
+        anim();
+        window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); cubeSize = window.innerWidth <= 768 ? 80 : 130; cubeRen.setSize(cubeSize, cubeSize); };
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚕️ 3D prohlížeč</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; }
         #ui-container { position: absolute; top: 20px; left: 20px; background: rgba(30, 30, 30, 0.9); border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); min-width: 300px; max-width: 380px; z-index: 10; border: 1px solid #444; display: flex; flex-direction: column; max-height: 90vh; }
         
         .toolbar { display: flex; background: rgba(10, 10, 10, 0.8); border-radius: 10px 10px 0 0; padding: 10px; gap: 5px; border-bottom: 1px solid #444; }
