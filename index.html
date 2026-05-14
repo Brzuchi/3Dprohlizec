@@ -320,6 +320,13 @@
             }
         };
 
+        // ZMĚNA: Na menších displejích (mobily) se roletky načtou automaticky zasunuté
+        if (window.innerWidth <= 768) {
+            toggleSection('ui-models', 'icon-models');
+            toggleSection('ui-planes', 'icon-planes');
+            toggleSection('ui-comments', 'icon-comments');
+        }
+
         const raycaster = new THREE.Raycaster();
         const mouseVec = new THREE.Vector2();
 
@@ -387,7 +394,6 @@
                 const hits = raycaster.intersectObject(modelsGroup, true);
                 if (hits.length > 0) {
                     const pt = hits[0].point.clone();
-                    // Optimalizovaná hustota - linka bude plynulá
                     if (pt.distanceTo(currentStroke[currentStroke.length - 1]) > 0.5) {
                         currentStroke.push(pt);
                         addSphereToGroup(tempPaintGroup, pt, 0xffffff);
@@ -420,7 +426,6 @@
             }
         });
 
-        // Optimalizovaná velikost pro přesnější obkreslení (0.25)
         function addSphereToGroup(group, pos, color) {
             const m = new THREE.MeshBasicMaterial({ color: color });
             const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
