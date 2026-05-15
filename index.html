@@ -184,6 +184,12 @@
         let measureStartPoint = null;
         let tempMeasureLine = null;
 
+        // Vlastní pan posun, který uchovává osu přesně ve středu modelu
+        let panOffset = new THREE.Vector2(0, 0);
+        let isCustomPanning = false;
+        let lastPanMouse = new THREE.Vector2();
+        let isTouchPanning = false;
+
         if (!isCreator) {
             document.getElementById('upload-label').style.display = 'none';
         }
@@ -196,8 +202,8 @@
         
         const controls = new OrbitControls(camera, renderer.domElement); 
         controls.enableDamping = true;
-        // Povolujeme pan posun zpět - chová se přesně jako v CAD/Sliceru
-        controls.enablePan = true; 
+        // Zablokujeme nativní Pan OrbitControls, který hýbe těžištěm, abychom použili vlastní vizuální Pan
+        controls.enablePan = false; 
         
         scene.add(new THREE.AmbientLight(0xffffff, 0.7));
         const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
@@ -255,13 +261,33 @@
 
         const viewerDiv = document.getElementById('viewer');
         
+        // Zabráníme vyskakování kontextového menu pravého tlačítka
+        viewerDiv.addEventListener('contextmenu', e => e.preventDefault());
+
+        // Dvojklik pro rychlé vycentrování pohledu
+        viewerDiv.addEventListener('dblclick', () => {
+            panOffset.set(0, 0);
+            camera.clearViewOffset();
+            camera.updateProjectionMatrix();
+        });
+        
+        // --- LOGIKA MYŠI A VLASTNÍHO POSUNU ---
         viewerDiv.addEventListener('pointerdown', (e) => {
+            // Vlastní pravé tlačítko = posun bez změny těžiště
+            if (e.button === 2 && currentTool === 'view') {
+                isCustomPanning = true;
+                lastPanMouse.set(e.clientX, e.clientY);
+                return;
+            }
+
             if (currentTool === 'view') return;
             if (e.button !== 0) return;
+            
             mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouseVec, camera);
             const hits = raycaster.intersectObject(modelsGroup, true);
+            
             if (hits.length > 0) {
                 activeStrokeColor = getContrastColor(hits[0].object);
                 if (currentTool === 'paint') {
@@ -292,10 +318,24 @@
         });
 
         viewerDiv.addEventListener('pointermove', (e) => {
+            // Vlastní pan posun čočky
+            if (isCustomPanning) {
+                const deltaX = e.clientX - lastPanMouse.x;
+                const deltaY = e.clientY - lastPanMouse.y;
+                lastPanMouse.set(e.clientX, e.clientY);
+                
+                panOffset.x -= deltaX;
+                panOffset.y -= deltaY;
+                camera.setViewOffset(window.innerWidth, window.innerHeight, panOffset.x, panOffset.y, window.innerWidth, window.innerHeight);
+                camera.updateProjectionMatrix();
+                return;
+            }
+
             if (currentTool === 'view') return;
             mouseVec.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouseVec.y = -(e.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouseVec, camera);
+            
             if (currentTool === 'paint' && isInteracting) {
                 const hits = raycaster.intersectObject(modelsGroup, true);
                 if (hits.length > 0) {
@@ -319,6 +359,11 @@
         });
 
         viewerDiv.addEventListener('pointerup', async (e) => {
+            if (e.button === 2) {
+                isCustomPanning = false;
+                return;
+            }
+
             if (currentTool === 'paint' && isInteracting) {
                 isInteracting = false;
                 if (currentStroke.length > 0) {
@@ -327,6 +372,33 @@
                     annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; currentStroke = [];
                 }
             }
+        });
+        
+        // --- LOGIKA DOTYKU PRO VLASTNÍ POSUN ---
+        viewerDiv.addEventListener('touchstart', (e) => {
+            if (e.touches && e.touches.length === 2 && currentTool === 'view') {
+                isTouchPanning = true;
+                lastPanMouse.set((e.touches[0].clientX + e.touches[1].clientX) / 2, (e.touches[0].clientY + e.touches[1].clientY) / 2);
+            }
+        }, { passive: false });
+
+        viewerDiv.addEventListener('touchmove', (e) => {
+            if (isTouchPanning && e.touches.length === 2) {
+                const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const deltaX = cx - lastPanMouse.x;
+                const deltaY = cy - lastPanMouse.y;
+                lastPanMouse.set(cx, cy);
+
+                panOffset.x -= deltaX;
+                panOffset.y -= deltaY;
+                camera.setViewOffset(window.innerWidth, window.innerHeight, panOffset.x, panOffset.y, window.innerWidth, window.innerHeight);
+                camera.updateProjectionMatrix();
+            }
+        }, { passive: false });
+
+        viewerDiv.addEventListener('touchend', (e) => {
+            if (!e.touches || e.touches.length < 2) isTouchPanning = false;
         });
 
         function addSphereToGroup(group, pos, color) {
@@ -541,9 +613,18 @@
         function createLbl(txt, col) { const canv = document.createElement('canvas'); canv.width = 128; canv.height = 128; const ctx = canv.getContext('2d'); ctx.fillStyle = '#333'; ctx.fillRect(0, 0, 128, 128); ctx.strokeStyle = '#666'; ctx.lineWidth = 6; ctx.strokeRect(0, 0, 128, 128); ctx.fillStyle = col; ctx.font = 'bold 20px Segoe UI'; ctx.textAlign = 'center'; ctx.fillText(txt, 64, 75); return new THREE.CanvasTexture(canv); }
         const orientCube = new THREE.Mesh(new THREE.BoxGeometry(85, 85, 85), [new THREE.MeshBasicMaterial({ map: createLbl('LAT', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('MED', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('SUP', '#44ff44') }), new THREE.MeshBasicMaterial({ map: createLbl('INF', '#ffff00') }), new THREE.MeshBasicMaterial({ map: createLbl('ANT', '#4444ff') }), new THREE.MeshBasicMaterial({ map: createLbl('POST', '#4444ff') })]);
         cubeScene.add(orientCube);
+        
         cubeCont.addEventListener('click', (e) => {
             const r = cubeRen.domElement.getBoundingClientRect(); const m = new THREE.Vector2(((e.clientX - r.left) / cubeSize) * 2 - 1, -((e.clientY - r.top) / cubeSize) * 2 + 1); const rc = new THREE.Raycaster(); rc.setFromCamera(m, cubeCam); const hits = rc.intersectObject(orientCube);
-            if (hits.length > 0) { const b = new THREE.Box3().setFromObject(modelsGroup); const c = b.getCenter(new THREE.Vector3()); const d = Math.max(b.getSize(new THREE.Vector3()).x, b.getSize(new THREE.Vector3()).y, b.getSize(new THREE.Vector3()).z) * 1.5 || 250; const idx = Math.floor(hits[0].faceIndex / 2); const p = [new THREE.Vector3(c.x+d, c.y, c.z), new THREE.Vector3(c.x-d, c.y, c.z), new THREE.Vector3(c.x, c.y+d, c.z), new THREE.Vector3(c.x, c.y-d, c.z), new THREE.Vector3(c.x, c.y, c.z+d), new THREE.Vector3(c.x, c.y, c.z-d)]; camera.position.copy(p[idx]); controls.target.copy(c); controls.update(); }
+            if (hits.length > 0) { 
+                const b = new THREE.Box3().setFromObject(modelsGroup); const c = b.getCenter(new THREE.Vector3()); const d = Math.max(b.getSize(new THREE.Vector3()).x, b.getSize(new THREE.Vector3()).y, b.getSize(new THREE.Vector3()).z) * 1.5 || 250; const idx = Math.floor(hits[0].faceIndex / 2); const p = [new THREE.Vector3(c.x+d, c.y, c.z), new THREE.Vector3(c.x-d, c.y, c.z), new THREE.Vector3(c.x, c.y+d, c.z), new THREE.Vector3(c.x, c.y-d, c.z), new THREE.Vector3(c.x, c.y, c.z+d), new THREE.Vector3(c.x, c.y, c.z-d)]; 
+                camera.position.copy(p[idx]); controls.target.copy(c); controls.update(); 
+                
+                // Vycentrování při kliku na kostku
+                panOffset.set(0, 0);
+                camera.clearViewOffset();
+                camera.updateProjectionMatrix();
+            }
         });
 
         async function handleUpload(files) {
@@ -583,7 +664,21 @@
         function anim() { requestAnimationFrame(anim); controls.update(); orientCube.quaternion.copy(camera.quaternion).invert(); updateLabels(); renderer.render(scene, camera); cubeRen.render(cubeScene, cubeCam); }
         if(currentSessionId) fetchModels();
         anim();
-        window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); cubeSize = window.innerWidth <= 768 ? 80 : 130; cubeRen.setSize(cubeSize, cubeSize); };
+        window.onresize = () => { 
+            camera.aspect = window.innerWidth / window.innerHeight; 
+            
+            // Při změně okna musíme aplikovat přepočtený posun čočky
+            if (panOffset.x !== 0 || panOffset.y !== 0) {
+                camera.setViewOffset(window.innerWidth, window.innerHeight, panOffset.x, panOffset.y, window.innerWidth, window.innerHeight);
+            } else {
+                camera.clearViewOffset();
+            }
+            
+            camera.updateProjectionMatrix(); 
+            renderer.setSize(window.innerWidth, window.innerHeight); 
+            cubeSize = window.innerWidth <= 768 ? 80 : 130; 
+            cubeRen.setSize(cubeSize, cubeSize); 
+        };
     </script>
 </body>
 </html>
