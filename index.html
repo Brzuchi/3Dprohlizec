@@ -110,22 +110,6 @@
             <button id="tool-measure" class="tool-btn">📏 Změřit</button>
         </div>
 
-        <div class="header-bar" onclick="toggleSection('ui-models', 'icon-models')">
-            <h2>⚙️ Modely</h2><span id="icon-models">▼</span>
-        </div>
-        <div id="ui-models" class="ui-section-content">
-            <label class="upload-btn" id="upload-label">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
-            <div id="link-container">
-                <div style="font-size: 0.8em; margin-bottom: 5px; color: #aaa;">Odkaz pro sdílení:</div>
-                <div class="link-row"><a id="share-link" class="generated-link" href="#" target="_blank"></a><button id="copy-link-btn" class="copy-btn">Kopírovat</button></div>
-            </div>
-            <div class="btn-group">
-                <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
-                <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
-            </div>
-            <div id="model-list"></div>
-        </div>
-
         <div class="header-bar" onclick="toggleSection('ui-planes', 'icon-planes')">
             <h2>📐 Roviny</h2><span id="icon-planes">▼</span>
         </div>
@@ -144,6 +128,22 @@
                     <input type="range" id="clip-z" step="0.5">
                 </div>
             </div>
+        </div>
+
+        <div class="header-bar" onclick="toggleSection('ui-models', 'icon-models')">
+            <h2>⚙️ Modely</h2><span id="icon-models">▼</span>
+        </div>
+        <div id="ui-models" class="ui-section-content">
+            <label class="upload-btn" id="upload-label">Nahrát STL / OBJ / ZIP <input type="file" id="file-input" multiple accept=".stl, .obj, .zip"></label>
+            <div id="link-container">
+                <div style="font-size: 0.8em; margin-bottom: 5px; color: #aaa;">Odkaz pro sdílení:</div>
+                <div class="link-row"><a id="share-link" class="generated-link" href="#" target="_blank"></a><button id="copy-link-btn" class="copy-btn">Kopírovat</button></div>
+            </div>
+            <div class="btn-group">
+                <button id="reset-btn" class="reset-btn" style="display: none;">Nová práce</button>
+                <button id="delete-all-btn" class="delete-all-btn" style="display: none;">Smazat vše</button>
+            </div>
+            <div id="model-list"></div>
         </div>
 
         <div class="header-bar" onclick="toggleSection('ui-comments', 'icon-comments')">
@@ -184,7 +184,6 @@
         let measureStartPoint = null;
         let tempMeasureLine = null;
 
-        // Vlastní pan posun, který uchovává osu přesně ve středu modelu
         let panOffset = new THREE.Vector2(0, 0);
         let isCustomPanning = false;
         let lastPanMouse = new THREE.Vector2();
@@ -202,7 +201,6 @@
         
         const controls = new OrbitControls(camera, renderer.domElement); 
         controls.enableDamping = true;
-        // Zablokujeme nativní Pan OrbitControls, který hýbe těžištěm, abychom použili vlastní vizuální Pan
         controls.enablePan = false; 
         
         scene.add(new THREE.AmbientLight(0xffffff, 0.7));
@@ -240,8 +238,8 @@
         };
 
         if (window.innerWidth <= 768) {
-            toggleSection('ui-models', 'icon-models');
             toggleSection('ui-planes', 'icon-planes');
+            toggleSection('ui-models', 'icon-models');
             toggleSection('ui-comments', 'icon-comments');
         }
 
@@ -261,19 +259,15 @@
 
         const viewerDiv = document.getElementById('viewer');
         
-        // Zabráníme vyskakování kontextového menu pravého tlačítka
         viewerDiv.addEventListener('contextmenu', e => e.preventDefault());
 
-        // Dvojklik pro rychlé vycentrování pohledu
         viewerDiv.addEventListener('dblclick', () => {
             panOffset.set(0, 0);
             camera.clearViewOffset();
             camera.updateProjectionMatrix();
         });
         
-        // --- LOGIKA MYŠI A VLASTNÍHO POSUNU ---
         viewerDiv.addEventListener('pointerdown', (e) => {
-            // Vlastní pravé tlačítko = posun bez změny těžiště
             if (e.button === 2 && currentTool === 'view') {
                 isCustomPanning = true;
                 lastPanMouse.set(e.clientX, e.clientY);
@@ -318,7 +312,6 @@
         });
 
         viewerDiv.addEventListener('pointermove', (e) => {
-            // Vlastní pan posun čočky
             if (isCustomPanning) {
                 const deltaX = e.clientX - lastPanMouse.x;
                 const deltaY = e.clientY - lastPanMouse.y;
@@ -374,7 +367,6 @@
             }
         });
         
-        // --- LOGIKA DOTYKU PRO VLASTNÍ POSUN ---
         viewerDiv.addEventListener('touchstart', (e) => {
             if (e.touches && e.touches.length === 2 && currentTool === 'view') {
                 isTouchPanning = true;
@@ -620,7 +612,6 @@
                 const b = new THREE.Box3().setFromObject(modelsGroup); const c = b.getCenter(new THREE.Vector3()); const d = Math.max(b.getSize(new THREE.Vector3()).x, b.getSize(new THREE.Vector3()).y, b.getSize(new THREE.Vector3()).z) * 1.5 || 250; const idx = Math.floor(hits[0].faceIndex / 2); const p = [new THREE.Vector3(c.x+d, c.y, c.z), new THREE.Vector3(c.x-d, c.y, c.z), new THREE.Vector3(c.x, c.y+d, c.z), new THREE.Vector3(c.x, c.y-d, c.z), new THREE.Vector3(c.x, c.y, c.z+d), new THREE.Vector3(c.x, c.y, c.z-d)]; 
                 camera.position.copy(p[idx]); controls.target.copy(c); controls.update(); 
                 
-                // Vycentrování při kliku na kostku
                 panOffset.set(0, 0);
                 camera.clearViewOffset();
                 camera.updateProjectionMatrix();
@@ -667,7 +658,6 @@
         window.onresize = () => { 
             camera.aspect = window.innerWidth / window.innerHeight; 
             
-            // Při změně okna musíme aplikovat přepočtený posun čočky
             if (panOffset.x !== 0 || panOffset.y !== 0) {
                 camera.setViewOffset(window.innerWidth, window.innerHeight, panOffset.x, panOffset.y, window.innerWidth, window.innerHeight);
             } else {
