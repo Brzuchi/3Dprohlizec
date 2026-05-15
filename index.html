@@ -193,7 +193,10 @@
         const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.localClippingEnabled = true;
         document.getElementById('viewer').appendChild(renderer.domElement);
-        const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
+        
+        const controls = new OrbitControls(camera, renderer.domElement); 
+        controls.enableDamping = true;
+        controls.enablePan = false; // Osa otáčení zůstane ukotvena přesně ve středu
         
         scene.add(new THREE.AmbientLight(0xffffff, 0.7));
         const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
@@ -488,26 +491,22 @@
             await Promise.all(loadPromises);
             if (colorsChanged && validFiles.length > 0 && isCreator) saveColors();
             
-            // --- CENTROVÁNÍ OSY OTÁČENÍ ---
             const box = new THREE.Box3().setFromObject(modelsGroup); 
             if (!box.isEmpty()) {
                 const center = box.getCenter(new THREE.Vector3());
                 const size = box.getSize(new THREE.Vector3());
                 const maxDim = Math.max(size.x, size.y, size.z);
                 
-                // Nastavení středu otáčení přesně na geometrický střed modelů
                 controls.target.copy(center);
                 
-                // Automatické nastavení kamery, aby model vyplnil obrazovku
                 const fov = camera.fov * (Math.PI / 180);
                 let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-                cameraZ *= 1.5; // Rezerva
+                cameraZ *= 1.5; 
                 camera.position.set(center.x + cameraZ, center.y + cameraZ, center.z + cameraZ);
                 camera.far = cameraZ * 100;
                 camera.updateProjectionMatrix();
                 controls.update();
 
-                // Nastavení ořezových rovin
                 const pad = 2; const sx = document.getElementById('clip-x'); sx.max = box.max.x+pad; sx.min = box.min.x-pad; sx.value = sx.max;
                 const sy = document.getElementById('clip-y'); sy.max = box.max.y+pad; sy.min = box.min.y-pad; sy.value = sy.max;
                 const sz = document.getElementById('clip-z'); sz.max = box.max.z+pad; sz.min = box.min.z-pad; sz.value = sz.max;
@@ -528,7 +527,7 @@
                     containerDiv.querySelector('.color-picker-btn').onchange = (e) => { const nc = e.target.value; containerDiv.style.borderLeftColor = nc; if (isSTL) model.material.color.set(nc); else model.traverse(c => { if(c.isMesh) c.material.color.set(nc); }); modelColors[name] = nc; if (isCreator) saveColors(); };
                     containerDiv.querySelector('input[type="checkbox"]').onchange = (e) => { model.visible = e.target.checked; };
                     containerDiv.querySelector('.opacity-slider').oninput = (e) => { const v = parseFloat(e.target.value); if (isSTL) model.material.opacity = v; else model.traverse(c => { if(c.isMesh) c.material.opacity = v; }); };
-                    if(isU) containerDiv.querySelector('.del-btn').onclick = async () => { if(confirm(`Smazat ${disp}?`)) { const { error } = await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); if (error) alert("Chyba."); else { modelsGroup.remove(model); containerDiv.remove(); } } };
+                    if(isU) containerDiv.querySelector('.del-btn').onclick = async () => { if(confirm(`Smazat ${disp}?`)) { const { error } = await supabase.storage.from('models').remove([`shared/${currentSessionId}/${name}`]); if (error) alert("Chyba při mazání."); else { modelsGroup.remove(model); containerDiv.remove(); } } };
                     res();
                 });
             });
