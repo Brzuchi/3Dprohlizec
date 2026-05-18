@@ -163,13 +163,6 @@
         import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { STLExporter } from 'three/addons/exporters/STLExporter.js';
-        
-        // --- ADDONS PRO AMBIENT OCCLUSION (DROBNÉ STÍNY) ---
-        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-        import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
-        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-        
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
         const supabase = createClient('https://aukjrwkjvuhmbfqqgoav.supabase.co', 'sb_publishable_YvrqIr_5PQY-wftqvZDcYA_Mu_HuKT3');
@@ -201,41 +194,26 @@
         }
 
         const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1a1a);
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100000); camera.position.set(200, 200, 200);
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100000); 
+        camera.position.set(200, 200, 200);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight);
-        // Vyžadováno pro clipping planes uvnitř EffectComposer
         renderer.localClippingEnabled = true;
         document.getElementById('viewer').appendChild(renderer.domElement);
         
-        // --- NASTAVENÍ POST-PROCESSINGU PRO DROBNÉ STÍNY ---
-        const composer = new EffectComposer(renderer);
-        
-        // 1. Základní vykreslení scény
-        const renderPass = new RenderPass(scene, camera);
-        composer.addPass(renderPass);
-        
-        // 2. SSAO Pass - vykreslí kontaktní stíny (Ambient Occlusion)
-        // Šířka a výška musí odpovídat rendereru
-        const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
-        // Ladění intenzity kontaktních stínů
-        ssaoPass.kernelRadius = 8; // Poloměr stínu (vyšší = širší/měkčí)
-        ssaoPass.minDistance = 0.001; // Minimální vzdálenost pro vznik stínu
-        ssaoPass.maxDistance = 0.1; // Maximální vzdálenost, kam stín dosáhne
-        composer.addPass(ssaoPass);
-        
-        // 3. Output Pass - finální úprava barev a výstup na obrazovku
-        const outputPass = new OutputPass();
-        composer.addPass(outputPass);
-
         const controls = new OrbitControls(camera, renderer.domElement); 
         controls.enableDamping = true;
         controls.enablePan = false; 
         
-        // --- HOMOGENNÍ OSVĚTLENÍ (STÁLE ROVNOMĚRNÉ) ---
-        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-        // Hemisphere light dodá velmi jemný barevný tón shora/zdola, což také pomáhá hloubce, ale nevrhá tvrdé stíny
-        scene.add(new THREE.HemisphereLight(0xffffff, 0xdddddd, 0.5));
+        // --- CHYTRÉ NASVÍCENÍ "ČELOVKA" PRO DOBROU HLOUBKU A VIDITELNOST ---
+        // 1. Jemné ambientní světlo pro prosvětlení stínů
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        
+        // 2. Směrové světlo přidělané na kameru (svítí vždy tam, kam se díváš)
+        const headLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        headLight.position.set(0, 0, 1); // Svítí z kamery směrem vpřed
+        camera.add(headLight); // Přidání světla přímo na kameru
+        scene.add(camera); // Kameru musíme přidat do scény, aby nesla to světlo
 
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
         const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
@@ -616,8 +594,8 @@
             const isSTL = name.toLowerCase().endsWith('.stl'); const l = isSTL ? new STLLoader() : new OBJLoader();
             return new Promise((res) => {
                 l.load(url, (r) => {
-                    // POUŽITÍ MATNÉHO MATERIÁLU (MeshLambertMaterial), ABY SSAO EFEKT LÉPE VYNIKL
-                    const m = new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
+                    // --- ZMĚNA: Vrácen MeshStandardMaterial s mírnou drsností ---
+                    const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
                     let model; if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
                     modelsGroup.add(model);
                     const disp = name.replace(/\.(stl|obj)$/i, '');
@@ -636,7 +614,6 @@
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
         const cubeRen = new THREE.WebGLRenderer({ antialias: true, alpha: true }); cubeRen.setSize(cubeSize, cubeSize); cubeCont.appendChild(cubeRen.domElement);
         function createLbl(txt, col) { const canv = document.createElement('canvas'); canv.width = 128; canv.height = 128; const ctx = canv.getContext('2d'); ctx.fillStyle = '#333'; ctx.fillRect(0, 0, 128, 128); ctx.strokeStyle = '#666'; ctx.lineWidth = 6; ctx.strokeRect(0, 0, 128, 128); ctx.fillStyle = col; ctx.font = 'bold 20px Segoe UI'; ctx.textAlign = 'center'; ctx.fillText(txt, 64, 75); return new THREE.CanvasTexture(canv); }
-        // POŽITÍ PŘEDĚLANÝCH LATINSKÝCH POPISŮ Z TVÉHO KÓDU
         const orientCube = new THREE.Mesh(new THREE.BoxGeometry(85, 85, 85), [new THREE.MeshBasicMaterial({ map: createLbl('SIN', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('DEXTER', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('SUPERIOR', '#44ff44') }), new THREE.MeshBasicMaterial({ map: createLbl('INFERIOR', '#ffff00') }), new THREE.MeshBasicMaterial({ map: createLbl('ANTERIOR', '#4444ff') }), new THREE.MeshBasicMaterial({ map: createLbl('POSTERIOR', '#4444ff') })]);
         cubeScene.add(orientCube);
         
@@ -688,22 +665,8 @@
 
         function anim() { requestAnimationFrame(anim); controls.update(); orientCube.quaternion.copy(camera.quaternion).invert(); updateLabels(); renderer.render(scene, camera); cubeRen.render(cubeScene, cubeCam); }
         
-        // --- UPRAVENÁ FUNKCE RENDER (POUŽÍVÁME EFFECTCOMPOSER) ---
-        function renderLoop() {
-            requestAnimationFrame(renderLoop);
-            controls.update();
-            orientCube.quaternion.copy(camera.quaternion).invert();
-            updateLabels();
-            
-            // Místo renderer.render(scene, camera) používáme composer.render()
-            // To vykreslí scénu i se kontaktními stíny
-            composer.render();
-            
-            cubeRen.render(cubeScene, cubeCam);
-        }
-        
         if(currentSessionId) fetchModels();
-        renderLoop(); // Spustíme upravenou smyčku
+        anim();
         
         window.onresize = () => { 
             camera.aspect = window.innerWidth / window.innerHeight; 
@@ -716,10 +679,6 @@
             
             camera.updateProjectionMatrix(); 
             renderer.setSize(window.innerWidth, window.innerHeight);
-            
-            // AKTUALIZACE VELIKOSTI COMPOSERU PŘI ZMĚNĚ OKNA
-            composer.setSize(window.innerWidth, window.innerHeight);
-            
             cubeSize = window.innerWidth <= 768 ? 80 : 130; 
             cubeRen.setSize(cubeSize, cubeSize); 
         };
