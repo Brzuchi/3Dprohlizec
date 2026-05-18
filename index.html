@@ -603,7 +603,7 @@
         const cubeCam = new THREE.PerspectiveCamera(45, 1, 0.1, 500); cubeCam.position.set(0, 0, 200);
         const cubeRen = new THREE.WebGLRenderer({ antialias: true, alpha: true }); cubeRen.setSize(cubeSize, cubeSize); cubeCont.appendChild(cubeRen.domElement);
         function createLbl(txt, col) { const canv = document.createElement('canvas'); canv.width = 128; canv.height = 128; const ctx = canv.getContext('2d'); ctx.fillStyle = '#333'; ctx.fillRect(0, 0, 128, 128); ctx.strokeStyle = '#666'; ctx.lineWidth = 6; ctx.strokeRect(0, 0, 128, 128); ctx.fillStyle = col; ctx.font = 'bold 20px Segoe UI'; ctx.textAlign = 'center'; ctx.fillText(txt, 64, 75); return new THREE.CanvasTexture(canv); }
-        const orientCube = new THREE.Mesh(new THREE.BoxGeometry(85, 85, 85), [new THREE.MeshBasicMaterial({ map: createLbl('LAT', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('MED', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('SUP', '#44ff44') }), new THREE.MeshBasicMaterial({ map: createLbl('INF', '#ffff00') }), new THREE.MeshBasicMaterial({ map: createLbl('ANT', '#4444ff') }), new THREE.MeshBasicMaterial({ map: createLbl('POST', '#4444ff') })]);
+        const orientCube = new THREE.Mesh(new THREE.BoxGeometry(85, 85, 85), [new THREE.MeshBasicMaterial({ map: createLbl('SIN', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('DX', '#ff4444') }), new THREE.MeshBasicMaterial({ map: createLbl('SUP', '#44ff44') }), new THREE.MeshBasicMaterial({ map: createLbl('INF', '#ffff00') }), new THREE.MeshBasicMaterial({ map: createLbl('ANT', '#4444ff') }), new THREE.MeshBasicMaterial({ map: createLbl('POST', '#4444ff') })]);
         cubeScene.add(orientCube);
         
         cubeCont.addEventListener('click', (e) => {
