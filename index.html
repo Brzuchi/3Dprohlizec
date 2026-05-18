@@ -203,8 +203,10 @@
         controls.enableDamping = true;
         controls.enablePan = false; 
         
-        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-        const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(100, 100, 100); scene.add(dl);
+        // --- UPRAVENÉ HOMOGENNÍ OSVĚTLENÍ ---
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        scene.add(new THREE.HemisphereLight(0xffffff, 0xdddddd, 0.6));
+
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
         const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
 
@@ -584,7 +586,8 @@
             const isSTL = name.toLowerCase().endsWith('.stl'); const l = isSTL ? new STLLoader() : new OBJLoader();
             return new Promise((res) => {
                 l.load(url, (r) => {
-                    const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
+                    // --- ZMĚNA NA MESHLAMBERTMATERIAL ---
+                    const m = new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
                     let model; if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
                     modelsGroup.add(model);
                     const disp = name.replace(/\.(stl|obj)$/i, '');
