@@ -205,6 +205,7 @@
         controls.enableDamping = true;
         controls.enablePan = false; 
         
+        // --- CHYTRÉ NASVÍCENÍ ---
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
         
         const headLight = new THREE.DirectionalLight(0xffffff, 0.7);
@@ -368,7 +369,10 @@
                 isInteracting = false;
                 if (currentStroke.length > 0) {
                     const text = prompt("Popis nákresu/tvaru:");
-                    if (text) await finishPaintStroke(currentStroke, text, activeStrokeColor);
+                    if (text !== null) { 
+                        // Pokud uživatel nezrušil dialog
+                        await finishPaintStroke(currentStroke, text, activeStrokeColor);
+                    }
                     annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; currentStroke = [];
                 }
             }
@@ -407,47 +411,50 @@
             group.add(s);
         }
 
-        // --- ZDE JE TVÁ NOVÁ LOGIKA PRO KŘIVKU A PLOCHU ---
-        async function finishPaintStroke(points, text, color) {
+        // --- PULL / PROJECT TO SURFACE LOGIKA ---
+        async function finishPaintStroke(points, text, color, loadedThickness = null) {
             const grp = new THREE.Group();
             
             let doExtrude = false;
             let extrudeDepth = 0;
+            let rawInput = 0;
             
-            // Extruzi nabízíme, pouze pokud uživatel nakreslil oblast (min. 3 body)
-            if (points.length > 2) {
-                const extInput = prompt("Zadej tloušťku plochy v mm (např. 2), pokud z toho chceš vytvořit extrudovaný blok.\nNebo nechej pole prázdné pro nakreslení pouhé hladké čáry:");
+            if (loadedThickness !== null) {
+                rawInput = loadedThickness;
+                if (rawInput !== 0) {
+                    doExtrude = true;
+                    extrudeDepth = Math.abs(rawInput);
+                }
+            } else if (points.length > 2) {
+                const extInput = prompt("Zadej tloušťku v mm (např. '2' pro přidání ven, '-2' pro zanoření dovnitř).\nPokud chceš jen nakreslit čáru, nechej pole prázdné:");
                 if (extInput !== null && extInput.trim() !== "") {
-                    const parsed = parseFloat(extInput.replace(',', '.')); // Povolí i čárku jako desetinné místo
-                    if (!isNaN(parsed) && parsed !== 0) {
+                    rawInput = parseFloat(extInput.replace(',', '.'));
+                    if (!isNaN(rawInput) && rawInput !== 0) {
                         doExtrude = true;
-                        extrudeDepth = parsed;
+                        extrudeDepth = Math.abs(rawInput);
                     }
                 }
             }
 
             if (doExtrude) {
-                // 1. Získání těžiště z nakreslených bodů
+                // 1. Získání těžiště z bodů a určení vektoru "od modelu"
                 const centroid = new THREE.Vector3();
                 points.forEach(p => centroid.add(p));
                 centroid.divideScalar(points.length);
 
-                // 2. Vypočítáme vektor "od těla" - od středu celého modelu do těžiště nákresu
                 const box = new THREE.Box3().setFromObject(modelsGroup);
                 const modelCenter = box.isEmpty() ? new THREE.Vector3(0,0,0) : box.getCenter(new THREE.Vector3());
                 const normal = new THREE.Vector3().subVectors(centroid, modelCenter).normalize();
-                
-                // Ochrana, kdyby těžiště leželo přesně ve středu
                 if (normal.lengthSq() < 0.001) normal.set(0, 0, 1);
 
-                // 3. Tvorba 2D roviny, která je kolmá na náš směr "od těla"
+                // 2. Vytvoření projekční 2D roviny
                 const zAxis = normal;
                 let up = new THREE.Vector3(0, 1, 0);
                 if (Math.abs(zAxis.y) > 0.99) up.set(1, 0, 0);
                 const xAxis = new THREE.Vector3().crossVectors(up, zAxis).normalize();
                 const yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
 
-                // 4. Promítnutí bodů z 3D modelu do této 2D roviny a tvorba Shape (tvaru)
+                // 3. Tvorba tvaru na základě uživatelských bodů
                 const shape = new THREE.Shape();
                 const points2D = [];
                 points.forEach((p) => {
@@ -461,28 +468,74 @@
                 for(let i = 1; i < points2D.length; i++) {
                     shape.lineTo(points2D[i].x, points2D[i].y);
                 }
-                shape.lineTo(points2D[0].x, points2D[0].y); // Uzavření plochy
+                shape.lineTo(points2D[0].x, points2D[0].y);
 
-                // 5. Samotná extruze plochy
-                const extrudeSettings = {
-                    depth: extrudeDepth,
-                    bevelEnabled: false, // Nechceme sražené hrany, chceme čistý řez
-                    steps: 1
-                };
+                // 4. Samotná extruze
+                const extrudeSettings = { depth: extrudeDepth, bevelEnabled: false, steps: 1 };
                 const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-                const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, clippingPlanes: globalClipPlanes });
-                const mesh = new THREE.Mesh(geometry, material);
 
-                // 6. Zarovnání lokálního vyextrudovaného objektu zpět na místo nákresu do 3D prostoru
                 const matrix = new THREE.Matrix4();
                 matrix.makeBasis(xAxis, yAxis, zAxis);
                 matrix.setPosition(centroid);
-                mesh.applyMatrix4(matrix);
+
+                const posAttr = geometry.attributes.position;
+                const vertexCount = posAttr.count;
+                
+                // 5. Raycasting – PŘILNUTÍ K POVRCHU
+                const rayNormal = normal.clone().negate(); // Směr zvenku do modelu
+                const raycasterObj = new THREE.Raycaster();
+                raycasterObj.side = THREE.DoubleSide; 
+                
+                for (let i = 0; i < vertexCount; i++) {
+                    const localZ = posAttr.getZ(i);
+                    const isTop = localZ > (extrudeDepth / 2);
+                    
+                    const localBaseVec = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), 0);
+                    const worldBaseVec = localBaseVec.applyMatrix4(matrix);
+                    
+                    // Začátek paprsku posuneme 500 jednotek od modelu a střílíme dovnitř
+                    const rayOrigin = worldBaseVec.clone().addScaledVector(normal, 500);
+                    raycasterObj.set(rayOrigin, rayNormal);
+                    const hits = raycasterObj.intersectObject(modelsGroup, true);
+                    
+                    if (hits.length > 0) {
+                        const hitPoint = hits[0].point; // Přesný bod na kosti/modelu
+                        
+                        if (rawInput >= 0) {
+                            // Tvorba implantátu (ven)
+                            if (isTop) {
+                                const topPos = hitPoint.clone().addScaledVector(normal, rawInput);
+                                posAttr.setXYZ(i, topPos.x, topPos.y, topPos.z);
+                            } else {
+                                posAttr.setXYZ(i, hitPoint.x, hitPoint.y, hitPoint.z); // Spodek je přilepený
+                            }
+                        } else {
+                            // Tvorba zátky / vrypu (dovnitř)
+                            if (isTop) {
+                                posAttr.setXYZ(i, hitPoint.x, hitPoint.y, hitPoint.z); // Vršek lícuje s kostí
+                            } else {
+                                const bottomPos = hitPoint.clone().addScaledVector(normal, rawInput); // Spodek jde do hloubky
+                                posAttr.setXYZ(i, bottomPos.x, bottomPos.y, bottomPos.z);
+                            }
+                        }
+                    } else {
+                        // Pokud paprsek mine (např. kresba visí ve vzduchu mimo model)
+                        const originalLocal = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), localZ);
+                        const originalWorld = originalLocal.applyMatrix4(matrix);
+                        posAttr.setXYZ(i, originalWorld.x, originalWorld.y, originalWorld.z);
+                    }
+                }
+                
+                posAttr.needsUpdate = true;
+                geometry.computeVertexNormals(); // Pro plynulé stínování
+
+                const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, clippingPlanes: globalClipPlanes });
+                const mesh = new THREE.Mesh(geometry, material);
                 
                 grp.add(mesh);
 
             } else if (points.length > 1) {
-                // Pokud uživatel nezadal tloušťku, vytvoříme profesionální vyhlazenou trubici (Catmull-Rom)
+                // Generování hladké trubice (Catmull-Rom), pokud uživatel tloušťku nevyplnil
                 const curve = new THREE.CatmullRomCurve3(points);
                 const tubeGeom = new THREE.TubeGeometry(curve, points.length * 4, 0.25, 8, false);
                 const tubeMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, clippingPlanes: globalClipPlanes });
@@ -490,7 +543,7 @@
                 grp.add(tubeMesh);
                 
             } else if (points.length === 1) {
-                // Pokud jen kliknul, necháme jeden bod
+                // Pokud udělá jen jeden bod
                 const m = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, clippingPlanes: globalClipPlanes });
                 const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
                 s.position.copy(points[0]);
@@ -498,7 +551,8 @@
             }
 
             annotationsGroup.add(grp);
-            const annot = { id: Date.now(), type: 'paint', data: points.map(p=>({x:p.x, y:p.y, z:p.z})), text, color, visible: true, meshGroup: grp };
+            // Uložení včetně zadané tloušťky, aby se to při znovunačtení vygenerovalo správně bez ptaní
+            const annot = { id: Date.now(), type: 'paint', data: points.map(p=>({x:p.x, y:p.y, z:p.z})), thickness: rawInput, text, color, visible: true, meshGroup: grp };
             annotations.push(annot); renderAnnotationUI(annot); await saveAnnotations();
         }
 
@@ -592,9 +646,10 @@
             list.appendChild(div);
         }
 
+        // --- ULOŽENÍ VČETNĚ TLOUŠŤKY ---
         async function saveAnnotations() {
             if(!currentSessionId) return;
-            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, planeNormal: a.planeNormal, text: a.text, color: a.color }));
+            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, planeNormal: a.planeNormal, text: a.text, color: a.color, thickness: a.thickness }));
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }), { upsert: true });
         }
 
@@ -603,6 +658,7 @@
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/colors.json`, new Blob([JSON.stringify(modelColors)], { type: 'application/json' }), { upsert: true });
         }
 
+        // --- NAČTENÍ VČETNĚ TLOUŠŤKY ---
         async function loadAnnotationsAndColors(id) {
             const cb = '?t=' + Date.now();
             const { data: cUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/colors.json`);
@@ -613,7 +669,7 @@
                 if(r.ok) {
                     const list = await r.json();
                     for (const a of list) {
-                        if (a.type === 'paint') await finishPaintStroke(a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)), a.text, a.color);
+                        if (a.type === 'paint') await finishPaintStroke(a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)), a.text, a.color, a.thickness || 0);
                         else if (a.type === 'cut') {
                             const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)); const n = new THREE.Vector3(a.planeNormal.x, a.planeNormal.y, a.planeNormal.z);
                             const grp = new THREE.Group(); grp.add(createContourMesh(pts, a.color, n)); annotationsGroup.add(grp);
