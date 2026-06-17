@@ -410,9 +410,26 @@
             group.add(s);
         }
 
+        // --- ZMĚNA: VYTVOŘENÍ CATMULL-ROM KŘIVKY (3D TRUBICE) ---
         async function finishPaintStroke(points, text, color) {
             const grp = new THREE.Group();
-            points.forEach(p => addSphereToGroup(grp, p, color));
+            
+            if (points.length > 1) {
+                // 1. Proložení bodů hladkou křivkou
+                const curve = new THREE.CatmullRomCurve3(points);
+                // 2. Vytvoření 3D trubice (křivka, segmenty pro plynulost, poloměr, segmenty obvodu, uzavřenost)
+                const tubeGeom = new THREE.TubeGeometry(curve, points.length * 4, 0.25, 8, false);
+                const tubeMat = new THREE.MeshLambertMaterial({ color: color });
+                const tubeMesh = new THREE.Mesh(tubeGeom, tubeMat);
+                grp.add(tubeMesh);
+            } else if (points.length === 1) {
+                // Pokud uživatel jen klikne (1 bod), uděláme klasickou sféru
+                const m = new THREE.MeshLambertMaterial({ color: color });
+                const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
+                s.position.copy(points[0]);
+                grp.add(s);
+            }
+
             annotationsGroup.add(grp);
             const annot = { id: Date.now(), type: 'paint', data: points.map(p=>({x:p.x, y:p.y, z:p.z})), text, color, visible: true, meshGroup: grp };
             annotations.push(annot); renderAnnotationUI(annot); await saveAnnotations();
@@ -594,7 +611,6 @@
             const isSTL = name.toLowerCase().endsWith('.stl'); const l = isSTL ? new STLLoader() : new OBJLoader();
             return new Promise((res) => {
                 l.load(url, (r) => {
-                    // --- ZMĚNA: Vrácen MeshStandardMaterial s mírnou drsností ---
                     const m = new THREE.MeshStandardMaterial({ color: col, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, transparent: true, opacity: 1, clippingPlanes: globalClipPlanes });
                     let model; if (isSTL) { model = new THREE.Mesh(r, m); } else { r.traverse(c => { if (c.isMesh) c.material = m; }); model = r; }
                     modelsGroup.add(model);
