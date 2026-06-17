@@ -205,15 +205,12 @@
         controls.enableDamping = true;
         controls.enablePan = false; 
         
-        // --- CHYTRÉ NASVÍCENÍ "ČELOVKA" PRO DOBROU HLOUBKU A VIDITELNOST ---
-        // 1. Jemné ambientní světlo pro prosvětlení stínů
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
         
-        // 2. Směrové světlo přidělané na kameru (svítí vždy tam, kam se díváš)
         const headLight = new THREE.DirectionalLight(0xffffff, 0.7);
-        headLight.position.set(0, 0, 1); // Svítí z kamery směrem vpřed
-        camera.add(headLight); // Přidání světla přímo na kameru
-        scene.add(camera); // Kameru musíme přidat do scény, aby nesla to světlo
+        headLight.position.set(0, 0, 1);
+        camera.add(headLight);
+        scene.add(camera); 
 
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
         const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
@@ -370,7 +367,7 @@
             if (currentTool === 'paint' && isInteracting) {
                 isInteracting = false;
                 if (currentStroke.length > 0) {
-                    const text = prompt("Komentář k nákresu:");
+                    const text = prompt("Popis nákresu/tvaru:");
                     if (text) await finishPaintStroke(currentStroke, text, activeStrokeColor);
                     annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; currentStroke = [];
                 }
@@ -410,21 +407,91 @@
             group.add(s);
         }
 
-        // --- ZMĚNA: VYTVOŘENÍ CATMULL-ROM KŘIVKY (3D TRUBICE) ---
+        // --- ZDE JE TVÁ NOVÁ LOGIKA PRO KŘIVKU A PLOCHU ---
         async function finishPaintStroke(points, text, color) {
             const grp = new THREE.Group();
             
-            if (points.length > 1) {
-                // 1. Proložení bodů hladkou křivkou
+            let doExtrude = false;
+            let extrudeDepth = 0;
+            
+            // Extruzi nabízíme, pouze pokud uživatel nakreslil oblast (min. 3 body)
+            if (points.length > 2) {
+                const extInput = prompt("Zadej tloušťku plochy v mm (např. 2), pokud z toho chceš vytvořit extrudovaný blok.\nNebo nechej pole prázdné pro nakreslení pouhé hladké čáry:");
+                if (extInput !== null && extInput.trim() !== "") {
+                    const parsed = parseFloat(extInput.replace(',', '.')); // Povolí i čárku jako desetinné místo
+                    if (!isNaN(parsed) && parsed !== 0) {
+                        doExtrude = true;
+                        extrudeDepth = parsed;
+                    }
+                }
+            }
+
+            if (doExtrude) {
+                // 1. Získání těžiště z nakreslených bodů
+                const centroid = new THREE.Vector3();
+                points.forEach(p => centroid.add(p));
+                centroid.divideScalar(points.length);
+
+                // 2. Vypočítáme vektor "od těla" - od středu celého modelu do těžiště nákresu
+                const box = new THREE.Box3().setFromObject(modelsGroup);
+                const modelCenter = box.isEmpty() ? new THREE.Vector3(0,0,0) : box.getCenter(new THREE.Vector3());
+                const normal = new THREE.Vector3().subVectors(centroid, modelCenter).normalize();
+                
+                // Ochrana, kdyby těžiště leželo přesně ve středu
+                if (normal.lengthSq() < 0.001) normal.set(0, 0, 1);
+
+                // 3. Tvorba 2D roviny, která je kolmá na náš směr "od těla"
+                const zAxis = normal;
+                let up = new THREE.Vector3(0, 1, 0);
+                if (Math.abs(zAxis.y) > 0.99) up.set(1, 0, 0);
+                const xAxis = new THREE.Vector3().crossVectors(up, zAxis).normalize();
+                const yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+
+                // 4. Promítnutí bodů z 3D modelu do této 2D roviny a tvorba Shape (tvaru)
+                const shape = new THREE.Shape();
+                const points2D = [];
+                points.forEach((p) => {
+                    const vec = new THREE.Vector3().subVectors(p, centroid);
+                    const u = vec.dot(xAxis);
+                    const v = vec.dot(yAxis);
+                    points2D.push(new THREE.Vector2(u, v));
+                });
+                
+                shape.moveTo(points2D[0].x, points2D[0].y);
+                for(let i = 1; i < points2D.length; i++) {
+                    shape.lineTo(points2D[i].x, points2D[i].y);
+                }
+                shape.lineTo(points2D[0].x, points2D[0].y); // Uzavření plochy
+
+                // 5. Samotná extruze plochy
+                const extrudeSettings = {
+                    depth: extrudeDepth,
+                    bevelEnabled: false, // Nechceme sražené hrany, chceme čistý řez
+                    steps: 1
+                };
+                const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+                const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, clippingPlanes: globalClipPlanes });
+                const mesh = new THREE.Mesh(geometry, material);
+
+                // 6. Zarovnání lokálního vyextrudovaného objektu zpět na místo nákresu do 3D prostoru
+                const matrix = new THREE.Matrix4();
+                matrix.makeBasis(xAxis, yAxis, zAxis);
+                matrix.setPosition(centroid);
+                mesh.applyMatrix4(matrix);
+                
+                grp.add(mesh);
+
+            } else if (points.length > 1) {
+                // Pokud uživatel nezadal tloušťku, vytvoříme profesionální vyhlazenou trubici (Catmull-Rom)
                 const curve = new THREE.CatmullRomCurve3(points);
-                // 2. Vytvoření 3D trubice (křivka, segmenty pro plynulost, poloměr, segmenty obvodu, uzavřenost)
                 const tubeGeom = new THREE.TubeGeometry(curve, points.length * 4, 0.25, 8, false);
-                const tubeMat = new THREE.MeshLambertMaterial({ color: color });
+                const tubeMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, clippingPlanes: globalClipPlanes });
                 const tubeMesh = new THREE.Mesh(tubeGeom, tubeMat);
                 grp.add(tubeMesh);
+                
             } else if (points.length === 1) {
-                // Pokud uživatel jen klikne (1 bod), uděláme klasickou sféru
-                const m = new THREE.MeshLambertMaterial({ color: color });
+                // Pokud jen kliknul, necháme jeden bod
+                const m = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, clippingPlanes: globalClipPlanes });
                 const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
                 s.position.copy(points[0]);
                 grp.add(s);
