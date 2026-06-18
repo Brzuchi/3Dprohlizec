@@ -205,13 +205,15 @@
         controls.enableDamping = true;
         controls.enablePan = false; 
         
-        // --- CHYTRÉ NASVÍCENÍ ---
+        // --- CHYTRÉ NASVÍCENÍ "ČELOVKA" PRO DOBROU HLOUBKU A VIDITELNOST ---
+        // 1. Jemné ambientní světlo pro prosvětlení stínů
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
         
+        // 2. Směrové světlo přidělané na kameru (svítí vždy tam, kam se díváš)
         const headLight = new THREE.DirectionalLight(0xffffff, 0.7);
-        headLight.position.set(0, 0, 1);
-        camera.add(headLight);
-        scene.add(camera); 
+        headLight.position.set(0, 0, 1); // Svítí z kamery směrem vpřed
+        camera.add(headLight); // Přidání světla přímo na kameru
+        scene.add(camera); // Kameru musíme přidat do scény, aby nesla to světlo
 
         const modelsGroup = new THREE.Group(); modelsGroup.rotation.x = -Math.PI/2; scene.add(modelsGroup);
         const annotationsGroup = new THREE.Group(); scene.add(annotationsGroup);
@@ -368,11 +370,8 @@
             if (currentTool === 'paint' && isInteracting) {
                 isInteracting = false;
                 if (currentStroke.length > 0) {
-                    const text = prompt("Popis nákresu/tvaru:");
-                    if (text !== null) { 
-                        // Pokud uživatel nezrušil dialog
-                        await finishPaintStroke(currentStroke, text, activeStrokeColor);
-                    }
+                    const text = prompt("Komentář k nákresu:");
+                    if (text) await finishPaintStroke(currentStroke, text, activeStrokeColor);
                     annotationsGroup.remove(tempPaintGroup); tempPaintGroup = null; currentStroke = [];
                 }
             }
@@ -411,148 +410,28 @@
             group.add(s);
         }
 
-        // --- PULL / PROJECT TO SURFACE LOGIKA ---
-        async function finishPaintStroke(points, text, color, loadedThickness = null) {
+        // --- ZMĚNA: VYTVOŘENÍ CATMULL-ROM KŘIVKY (3D TRUBICE) ---
+        async function finishPaintStroke(points, text, color) {
             const grp = new THREE.Group();
             
-            let doExtrude = false;
-            let extrudeDepth = 0;
-            let rawInput = 0;
-            
-            if (loadedThickness !== null) {
-                rawInput = loadedThickness;
-                if (rawInput !== 0) {
-                    doExtrude = true;
-                    extrudeDepth = Math.abs(rawInput);
-                }
-            } else if (points.length > 2) {
-                const extInput = prompt("Zadej tloušťku v mm (např. '2' pro přidání ven, '-2' pro zanoření dovnitř).\nPokud chceš jen nakreslit čáru, nechej pole prázdné:");
-                if (extInput !== null && extInput.trim() !== "") {
-                    rawInput = parseFloat(extInput.replace(',', '.'));
-                    if (!isNaN(rawInput) && rawInput !== 0) {
-                        doExtrude = true;
-                        extrudeDepth = Math.abs(rawInput);
-                    }
-                }
-            }
-
-            if (doExtrude) {
-                // 1. Získání těžiště z bodů a určení vektoru "od modelu"
-                const centroid = new THREE.Vector3();
-                points.forEach(p => centroid.add(p));
-                centroid.divideScalar(points.length);
-
-                const box = new THREE.Box3().setFromObject(modelsGroup);
-                const modelCenter = box.isEmpty() ? new THREE.Vector3(0,0,0) : box.getCenter(new THREE.Vector3());
-                const normal = new THREE.Vector3().subVectors(centroid, modelCenter).normalize();
-                if (normal.lengthSq() < 0.001) normal.set(0, 0, 1);
-
-                // 2. Vytvoření projekční 2D roviny
-                const zAxis = normal;
-                let up = new THREE.Vector3(0, 1, 0);
-                if (Math.abs(zAxis.y) > 0.99) up.set(1, 0, 0);
-                const xAxis = new THREE.Vector3().crossVectors(up, zAxis).normalize();
-                const yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
-
-                // 3. Tvorba tvaru na základě uživatelských bodů
-                const shape = new THREE.Shape();
-                const points2D = [];
-                points.forEach((p) => {
-                    const vec = new THREE.Vector3().subVectors(p, centroid);
-                    const u = vec.dot(xAxis);
-                    const v = vec.dot(yAxis);
-                    points2D.push(new THREE.Vector2(u, v));
-                });
-                
-                shape.moveTo(points2D[0].x, points2D[0].y);
-                for(let i = 1; i < points2D.length; i++) {
-                    shape.lineTo(points2D[i].x, points2D[i].y);
-                }
-                shape.lineTo(points2D[0].x, points2D[0].y);
-
-                // 4. Samotná extruze
-                const extrudeSettings = { depth: extrudeDepth, bevelEnabled: false, steps: 1 };
-                const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-
-                const matrix = new THREE.Matrix4();
-                matrix.makeBasis(xAxis, yAxis, zAxis);
-                matrix.setPosition(centroid);
-
-                const posAttr = geometry.attributes.position;
-                const vertexCount = posAttr.count;
-                
-                // 5. Raycasting – PŘILNUTÍ K POVRCHU
-                const rayNormal = normal.clone().negate(); // Směr zvenku do modelu
-                const raycasterObj = new THREE.Raycaster();
-                raycasterObj.side = THREE.DoubleSide; 
-                
-                for (let i = 0; i < vertexCount; i++) {
-                    const localZ = posAttr.getZ(i);
-                    const isTop = localZ > (extrudeDepth / 2);
-                    
-                    const localBaseVec = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), 0);
-                    const worldBaseVec = localBaseVec.applyMatrix4(matrix);
-                    
-                    // Začátek paprsku posuneme 500 jednotek od modelu a střílíme dovnitř
-                    const rayOrigin = worldBaseVec.clone().addScaledVector(normal, 500);
-                    raycasterObj.set(rayOrigin, rayNormal);
-                    const hits = raycasterObj.intersectObject(modelsGroup, true);
-                    
-                    if (hits.length > 0) {
-                        const hitPoint = hits[0].point; // Přesný bod na kosti/modelu
-                        
-                        if (rawInput >= 0) {
-                            // Tvorba implantátu (ven)
-                            if (isTop) {
-                                const topPos = hitPoint.clone().addScaledVector(normal, rawInput);
-                                posAttr.setXYZ(i, topPos.x, topPos.y, topPos.z);
-                            } else {
-                                posAttr.setXYZ(i, hitPoint.x, hitPoint.y, hitPoint.z); // Spodek je přilepený
-                            }
-                        } else {
-                            // Tvorba zátky / vrypu (dovnitř)
-                            if (isTop) {
-                                posAttr.setXYZ(i, hitPoint.x, hitPoint.y, hitPoint.z); // Vršek lícuje s kostí
-                            } else {
-                                const bottomPos = hitPoint.clone().addScaledVector(normal, rawInput); // Spodek jde do hloubky
-                                posAttr.setXYZ(i, bottomPos.x, bottomPos.y, bottomPos.z);
-                            }
-                        }
-                    } else {
-                        // Pokud paprsek mine (např. kresba visí ve vzduchu mimo model)
-                        const originalLocal = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), localZ);
-                        const originalWorld = originalLocal.applyMatrix4(matrix);
-                        posAttr.setXYZ(i, originalWorld.x, originalWorld.y, originalWorld.z);
-                    }
-                }
-                
-                posAttr.needsUpdate = true;
-                geometry.computeVertexNormals(); // Pro plynulé stínování
-
-                const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide, clippingPlanes: globalClipPlanes });
-                const mesh = new THREE.Mesh(geometry, material);
-                
-                grp.add(mesh);
-
-            } else if (points.length > 1) {
-                // Generování hladké trubice (Catmull-Rom), pokud uživatel tloušťku nevyplnil
+            if (points.length > 1) {
+                // 1. Proložení bodů hladkou křivkou
                 const curve = new THREE.CatmullRomCurve3(points);
+                // 2. Vytvoření 3D trubice (křivka, segmenty pro plynulost, poloměr, segmenty obvodu, uzavřenost)
                 const tubeGeom = new THREE.TubeGeometry(curve, points.length * 4, 0.25, 8, false);
-                const tubeMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, clippingPlanes: globalClipPlanes });
+                const tubeMat = new THREE.MeshLambertMaterial({ color: color });
                 const tubeMesh = new THREE.Mesh(tubeGeom, tubeMat);
                 grp.add(tubeMesh);
-                
             } else if (points.length === 1) {
-                // Pokud udělá jen jeden bod
-                const m = new THREE.MeshStandardMaterial({ color: color, roughness: 0.6, metalness: 0.1, clippingPlanes: globalClipPlanes });
+                // Pokud uživatel jen klikne (1 bod), uděláme klasickou sféru
+                const m = new THREE.MeshLambertMaterial({ color: color });
                 const s = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), m);
                 s.position.copy(points[0]);
                 grp.add(s);
             }
 
             annotationsGroup.add(grp);
-            // Uložení včetně zadané tloušťky, aby se to při znovunačtení vygenerovalo správně bez ptaní
-            const annot = { id: Date.now(), type: 'paint', data: points.map(p=>({x:p.x, y:p.y, z:p.z})), thickness: rawInput, text, color, visible: true, meshGroup: grp };
+            const annot = { id: Date.now(), type: 'paint', data: points.map(p=>({x:p.x, y:p.y, z:p.z})), text, color, visible: true, meshGroup: grp };
             annotations.push(annot); renderAnnotationUI(annot); await saveAnnotations();
         }
 
@@ -646,10 +525,9 @@
             list.appendChild(div);
         }
 
-        // --- ULOŽENÍ VČETNĚ TLOUŠŤKY ---
         async function saveAnnotations() {
             if(!currentSessionId) return;
-            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, planeNormal: a.planeNormal, text: a.text, color: a.color, thickness: a.thickness }));
+            const payload = annotations.map(a => ({ id: a.id, type: a.type, data: a.data, planeNormal: a.planeNormal, text: a.text, color: a.color }));
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/annotations.json`, new Blob([JSON.stringify(payload)], { type: 'application/json' }), { upsert: true });
         }
 
@@ -658,7 +536,6 @@
             await supabase.storage.from('models').upload(`shared/${currentSessionId}/colors.json`, new Blob([JSON.stringify(modelColors)], { type: 'application/json' }), { upsert: true });
         }
 
-        // --- NAČTENÍ VČETNĚ TLOUŠŤKY ---
         async function loadAnnotationsAndColors(id) {
             const cb = '?t=' + Date.now();
             const { data: cUrl } = supabase.storage.from('models').getPublicUrl(`shared/${id}/colors.json`);
@@ -669,7 +546,7 @@
                 if(r.ok) {
                     const list = await r.json();
                     for (const a of list) {
-                        if (a.type === 'paint') await finishPaintStroke(a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)), a.text, a.color, a.thickness || 0);
+                        if (a.type === 'paint') await finishPaintStroke(a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)), a.text, a.color);
                         else if (a.type === 'cut') {
                             const pts = a.data.map(p => new THREE.Vector3(p.x, p.y, p.z)); const n = new THREE.Vector3(a.planeNormal.x, a.planeNormal.y, a.planeNormal.z);
                             const grp = new THREE.Group(); grp.add(createContourMesh(pts, a.color, n)); annotationsGroup.add(grp);
